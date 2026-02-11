@@ -296,3 +296,27 @@ class TestAiEngine:
         result = await engine.verify_recovery({"pods_total": 3}, {"pods_total": 3})
         assert result["fully_recovered"] is True
         assert result["recovery_percentage"] == 100
+
+    async def test_parse_natural_language(self, mock_anthropic):
+        mock_anthropic.messages.create.return_value.content = [
+            MagicMock(
+                text='{"name": "delete-nginx-pods", "chaos_type": "pod_delete",'
+                '"target_namespace": "staging", "target_labels": {"app": "nginx"},'
+                '"parameters": {}, "description": "Delete nginx pods in staging"}'
+            )
+        ]
+        engine = self._make_engine(mock_anthropic)
+        result = await engine.parse_natural_language("staging에서 nginx pod 삭제")
+        assert result["name"] == "delete-nginx-pods"
+        assert result["chaos_type"] == "pod_delete"
+        assert result["target_namespace"] == "staging"
+
+    async def test_parse_natural_language_invalid_response(self, mock_anthropic):
+        mock_anthropic.messages.create.return_value.content = [
+            MagicMock(
+                text='{"name": "bad", "chaos_type": "invalid_type"}'
+            )
+        ]
+        engine = self._make_engine(mock_anthropic)
+        with pytest.raises(Exception):
+            await engine.parse_natural_language("invalid experiment")

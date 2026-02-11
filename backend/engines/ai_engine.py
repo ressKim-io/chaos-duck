@@ -294,3 +294,43 @@ Respond in JSON with:
         )
 
         return self._extract_json(message.content[0].text)
+
+    async def parse_natural_language(
+        self,
+        text: str,
+        topology: dict[str, Any] | None = None,
+    ) -> dict:
+        """Convert natural language description to ExperimentConfig."""
+        from models.experiment import ExperimentConfig
+
+        client = self._get_client()
+
+        prompt = f"""Convert this natural language chaos experiment description into
+a structured experiment configuration.
+
+User Input: "{text}"
+Available Topology: {topology or 'N/A'}
+
+Respond with a single JSON object containing:
+- name: descriptive experiment name
+- chaos_type: one of [pod_delete, network_latency, network_loss, cpu_stress, memory_stress, ec2_stop, rds_failover, route_blackhole]
+- target_namespace: kubernetes namespace (if applicable)
+- target_labels: dict of label key-value pairs (if applicable)
+- parameters: dict of chaos parameters
+- description: human-readable description
+
+Example:
+{{"name": "delete-nginx-pods", "chaos_type": "pod_delete",
+  "target_namespace": "staging", "target_labels": {{"app": "nginx"}},
+  "parameters": {{}}, "description": "Delete nginx pods in staging"}}"""
+
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        data = self._extract_json(message.content[0].text)
+        # Validate through Pydantic
+        config = ExperimentConfig(**data)
+        return config.model_dump()

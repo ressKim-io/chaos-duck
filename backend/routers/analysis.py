@@ -100,3 +100,15 @@ async def generate_experiments(request: dict):
 
     experiments = await ai_engine.generate_experiments(topology, target_namespace, count)
     return {"experiments": experiments, "count": len(experiments)}
+
+
+@router.post("/nl-experiment")
+async def nl_experiment(request: dict):
+    """Convert natural language to ExperimentConfig."""
+    text = request.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    topology = request.get("topology")
+    config = await ai_engine.parse_natural_language(text, topology)
+    return config

@@ -290,3 +290,29 @@ class TestAnalysisRouter:
         data = resp.json()
         assert data["count"] == 1
         assert data["experiments"][0]["name"] == "kill-nginx"
+
+    async def test_nl_experiment(self, client):
+        with patch("routers.analysis.ai_engine") as mock_engine:
+            mock_engine.parse_natural_language = AsyncMock(
+                return_value={
+                    "name": "delete-nginx",
+                    "chaos_type": "pod_delete",
+                    "target_namespace": "staging",
+                    "target_labels": {"app": "nginx"},
+                    "parameters": {},
+                    "description": "Delete nginx pods",
+                }
+            )
+            resp = await client.post(
+                "/api/analysis/nl-experiment",
+                json={"text": "staging에서 nginx pod 삭제"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["chaos_type"] == "pod_delete"
+
+    async def test_nl_experiment_empty_text(self, client):
+        resp = await client.post(
+            "/api/analysis/nl-experiment",
+            json={"text": ""},
+        )
+        assert resp.status_code == 400
