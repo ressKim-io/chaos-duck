@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { createExperiment, dryRunExperiment } from "./api";
+import { useToast } from "./ToastContext";
+import Spinner from "./Spinner";
 
 const CHAOS_TYPES = {
   "K8s": ["pod_delete", "network_latency", "network_loss", "cpu_stress", "memory_stress"],
@@ -43,8 +45,8 @@ export default function ExperimentForm({ onCreated }) {
   const [safety, setSafety] = useState(DEFAULT_SAFETY);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [showSafety, setShowSafety] = useState(false);
-  const [result, setResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const toast = useToast();
 
   const isK8s = CHAOS_TYPES["K8s"].includes(chaosType);
 
@@ -79,14 +81,19 @@ export default function ExperimentForm({ onCreated }) {
 
   const handleSubmit = async (dryRun) => {
     setSubmitting(true);
-    setResult(null);
     const config = buildConfig(dryRun);
     const res = dryRun
       ? await dryRunExperiment(config)
       : await createExperiment(config);
-    setResult(res);
+    if (res?.error) {
+      toast(res.error, "error");
+    } else if (dryRun) {
+      toast(`Dry run passed for ${res.experiment_id}`, "success");
+    } else {
+      toast(`Experiment ${res.experiment_id} created`, "success");
+      onCreated?.();
+    }
     setSubmitting(false);
-    if (!res.error && !dryRun) onCreated?.();
   };
 
   return (
@@ -298,8 +305,9 @@ export default function ExperimentForm({ onCreated }) {
         <button
           onClick={() => handleSubmit(false)}
           disabled={submitting}
-          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
+          {submitting && <Spinner size="sm" />}
           {submitting ? "Running..." : "Run Experiment"}
         </button>
         <button
@@ -310,26 +318,6 @@ export default function ExperimentForm({ onCreated }) {
           Dry Run
         </button>
       </div>
-
-      {/* Result */}
-      {result && (
-        <div
-          className={`mt-3 rounded p-3 text-sm ${
-            result.error
-              ? "border border-red-200 bg-red-50 text-red-700"
-              : "border border-green-200 bg-green-50 text-green-700"
-          }`}
-        >
-          {result.error ? (
-            <span>Error: {result.error}</span>
-          ) : (
-            <span>
-              Experiment <strong>{result.experiment_id}</strong> created
-              ({result.status})
-            </span>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { listExperiments, rollbackExperiment } from "./api";
 import { usePolling } from "./hooks";
 import StatusBadge from "./StatusBadge";
+import Spinner from "./Spinner";
 
 const PHASES = ["steady_state", "hypothesis", "inject", "observe", "rollback"];
 
@@ -115,7 +116,12 @@ export default function ExperimentList() {
   if (error)
     return <p className="text-sm text-red-500">Failed to load: {error}</p>;
   if (!experiments)
-    return <p className="text-sm text-gray-400">Loading experiments...</p>;
+    return (
+      <div className="flex items-center justify-center gap-2 py-8 text-gray-400">
+        <Spinner size="md" />
+        <span className="text-sm">Loading experiments...</span>
+      </div>
+    );
   if (experiments.length === 0)
     return (
       <p className="text-sm text-gray-500">

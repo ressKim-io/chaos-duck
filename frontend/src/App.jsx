@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { fetchHealth, triggerEmergencyStop } from "./api";
 import { usePolling } from "./hooks";
+import { useToast } from "./ToastContext";
 import StatusBadge from "./StatusBadge";
 import Dashboard from "./Dashboard";
 import ExperimentList from "./ExperimentList";
@@ -16,10 +17,17 @@ export default function App() {
   const { data: health } = usePolling(fetchHealth, 10000);
   const emergencyStopped = health?.emergency_stop ?? false;
 
+  const toast = useToast();
+
   const handleEmergencyStop = async () => {
     if (!confirm("Trigger Emergency Stop? This will rollback ALL active experiments."))
       return;
-    await triggerEmergencyStop();
+    const res = await triggerEmergencyStop();
+    if (res?.error) {
+      toast(res.error, "error");
+    } else {
+      toast("Emergency stop triggered — all experiments rolling back", "warning");
+    }
   };
 
   return (

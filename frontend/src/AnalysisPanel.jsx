@@ -7,6 +7,7 @@ import {
   getResilienceTrend,
 } from "./api";
 import { useApi } from "./hooks";
+import { useToast } from "./ToastContext";
 import ResilienceChart from "./ResilienceChart";
 
 /* ── Section 1: Natural Language Experiment Creator ── */
@@ -100,6 +101,7 @@ function AiRecommendations() {
   const [recommendations, setRecommendations] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const toast = useToast();
 
   const handleGenerate = async () => {
     setLoading(true);
@@ -127,9 +129,9 @@ function AiRecommendations() {
   const handleRun = async (config) => {
     const res = await createExperiment(config);
     if (res?.error) {
-      alert(`Error: ${res.error}`);
+      toast(res.error, "error");
     } else {
-      alert(`Experiment ${res.experiment_id} created!`);
+      toast(`Experiment ${res.experiment_id} created`, "success");
     }
   };
 
