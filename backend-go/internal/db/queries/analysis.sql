@@ -14,6 +14,6 @@ ORDER BY created_at ASC;
 -- name: ListAnalysisResultsSinceByNamespace :many
 SELECT ar.* FROM analysis_results ar
 JOIN experiments e ON ar.experiment_id = e.id
-WHERE ar.created_at >= $1
-  AND e.config->>'target_namespace' = $2
+WHERE ar.created_at >= @since
+  AND e.config->>'target_namespace' = @namespace::text
 ORDER BY ar.created_at ASC;

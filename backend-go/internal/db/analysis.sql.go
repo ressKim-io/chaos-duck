@@ -122,17 +122,17 @@ const listAnalysisResultsSinceByNamespace = `-- name: ListAnalysisResultsSinceBy
 SELECT ar.id, ar.experiment_id, ar.severity, ar.root_cause, ar.confidence, ar.recommendations, ar.resilience_score, ar.created_at FROM analysis_results ar
 JOIN experiments e ON ar.experiment_id = e.id
 WHERE ar.created_at >= $1
-  AND e.config->>'target_namespace' = $2
+  AND e.config->>'target_namespace' = $2::text
 ORDER BY ar.created_at ASC
 `
 
 type ListAnalysisResultsSinceByNamespaceParams struct {
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	Config    json.RawMessage    `json:"config"`
+	Since     pgtype.Timestamptz `json:"since"`
+	Namespace string             `json:"namespace"`
 }
 
 func (q *Queries) ListAnalysisResultsSinceByNamespace(ctx context.Context, arg ListAnalysisResultsSinceByNamespaceParams) ([]AnalysisResult, error) {
-	rows, err := q.db.Query(ctx, listAnalysisResultsSinceByNamespace, arg.CreatedAt, arg.Config)
+	rows, err := q.db.Query(ctx, listAnalysisResultsSinceByNamespace, arg.Since, arg.Namespace)
 	if err != nil {
 		return nil, err
 	}
