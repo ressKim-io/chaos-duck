@@ -100,16 +100,137 @@ def validate_blast_radius(affected_count: int, total_count: int, max_ratio: floa
     return True
 
 
+class HealthCheckLoop:
+    """Background health check loop that monitors probes during experiments.
+
+    Polls probes at a configurable interval and triggers automatic rollback
+    when consecutive failures exceed the threshold.
+    """
+
+    def __init__(
+        self,
+        experiment_id: str,
+        probes: list,
+        interval: int = 10,
+        failure_threshold: int = 3,
+        on_failure: callable | None = None,
+    ):
+        self.experiment_id = experiment_id
+        self.probes = probes
+        self.interval = interval
+        self.failure_threshold = failure_threshold
+        self.on_failure = on_failure
+        self._consecutive_failures = 0
+        self._task: asyncio.Task | None = None
+        self._stopped = asyncio.Event()
+        self._results: list = []
+
+    @property
+    def results(self) -> list:
+        return list(self._results)
+
+    @property
+    def is_running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    def start(self) -> None:
+        """Start the health check loop as a background task."""
+        if self._task is not None:
+            return
+        self._stopped.clear()
+        self._task = asyncio.create_task(self._run())
+        logger.info(
+            "Health check loop started for %s (interval=%ds, threshold=%d)",
+            self.experiment_id,
+            self.interval,
+            self.failure_threshold,
+        )
+
+    async def stop(self) -> None:
+        """Stop the health check loop."""
+        if self._task is None:
+            return
+        self._stopped.set()
+        try:
+            await asyncio.wait_for(self._task, timeout=self.interval + 2)
+        except (TimeoutError, asyncio.CancelledError):
+            self._task.cancel()
+        self._task = None
+        logger.info("Health check loop stopped for %s", self.experiment_id)
+
+    async def _run(self) -> None:
+        """Main polling loop."""
+        while not self._stopped.is_set():
+            try:
+                all_passed = await self._check_probes()
+                if all_passed:
+                    self._consecutive_failures = 0
+                else:
+                    self._consecutive_failures += 1
+                    logger.warning(
+                        "Health check failed for %s (%d/%d)",
+                        self.experiment_id,
+                        self._consecutive_failures,
+                        self.failure_threshold,
+                    )
+
+                    if self._consecutive_failures >= self.failure_threshold:
+                        logger.critical(
+                            "Health check threshold reached for %s. Triggering rollback.",
+                            self.experiment_id,
+                        )
+                        if self.on_failure:
+                            await self.on_failure()
+                        else:
+                            await rollback_manager.rollback(self.experiment_id)
+                        self._stopped.set()
+                        return
+
+                # Wait for interval or stop signal
+                try:
+                    await asyncio.wait_for(self._stopped.wait(), timeout=self.interval)
+                    return  # Stopped
+                except TimeoutError:
+                    pass  # Continue polling
+
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.error("Health check loop error for %s: %s", self.experiment_id, e)
+                self._consecutive_failures += 1
+
+    async def _check_probes(self) -> bool:
+        """Execute all probes and return True if all pass."""
+        if not self.probes:
+            return True
+
+        all_passed = True
+        for probe in self.probes:
+            result = await probe.safe_execute()
+            self._results.append(result)
+            if not result.passed:
+                all_passed = False
+        return all_passed
+
+
 class ExperimentContext:
     """Context manager for safe experiment execution.
 
-    Automatically captures a snapshot before the experiment and
-    triggers rollback on exception.
+    Automatically captures a snapshot before the experiment,
+    runs health check probes during injection, and triggers
+    rollback on exception.
     """
 
-    def __init__(self, experiment_id: str, config: ExperimentConfig):
+    def __init__(
+        self,
+        experiment_id: str,
+        config: ExperimentConfig,
+        probes: list | None = None,
+    ):
         self.experiment_id = experiment_id
         self.config = config
+        self.probes = probes or []
+        self._health_loop: HealthCheckLoop | None = None
 
     async def __aenter__(self):
         if emergency_stop_manager.is_triggered():
@@ -122,9 +243,25 @@ class ExperimentContext:
                 self.config.target_namespace,
                 self.config.target_labels,
             )
+
+        # Start health check loop if continuous probes are configured
+        continuous_probes = [p for p in self.probes if hasattr(p, "mode") and p.mode == "continuous"]
+        if continuous_probes:
+            self._health_loop = HealthCheckLoop(
+                experiment_id=self.experiment_id,
+                probes=continuous_probes,
+                interval=self.config.safety.health_check_interval,
+                failure_threshold=self.config.safety.health_check_failure_threshold,
+            )
+            self._health_loop.start()
+
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Stop health check loop
+        if self._health_loop is not None:
+            await self._health_loop.stop()
+
         if exc_type is not None:
             logger.error(
                 "Experiment %s failed: %s. Triggering rollback.",
@@ -133,3 +270,15 @@ class ExperimentContext:
             )
             await rollback_manager.rollback(self.experiment_id)
         return False
+
+    def start_health_checks(self, probes: list) -> None:
+        """Manually start health check loop with given probes."""
+        if self._health_loop is not None:
+            return
+        self._health_loop = HealthCheckLoop(
+            experiment_id=self.experiment_id,
+            probes=probes,
+            interval=self.config.safety.health_check_interval,
+            failure_threshold=self.config.safety.health_check_failure_threshold,
+        )
+        self._health_loop.start()

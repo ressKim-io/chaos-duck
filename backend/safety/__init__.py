@@ -1,6 +1,7 @@
 from .guardrails import (
     EmergencyStopManager,
     ExperimentContext,
+    HealthCheckLoop,
     emergency_stop_manager,
     require_confirmation,
     validate_blast_radius,
@@ -20,4 +21,5 @@ __all__ = [
     "require_confirmation",
     "validate_blast_radius",
     "ExperimentContext",
+    "HealthCheckLoop",
 ]
