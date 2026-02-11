@@ -19,6 +19,7 @@ func SetupRouter(
 	corsOrigin string,
 ) *gin.Engine {
 	r := gin.New()
+	r.MaxMultipartMemory = 1 << 20 // 1 MB max body
 	r.Use(gin.Recovery())
 	r.Use(CORSMiddleware(corsOrigin))
 	r.Use(PrometheusMiddleware(metrics))
@@ -38,6 +39,10 @@ func SetupRouter(
 	r.POST("/emergency-stop", func(c *gin.Context) {
 		esm.Trigger()
 		c.JSON(http.StatusOK, gin.H{"status": "emergency_stop_triggered"})
+	})
+	r.POST("/emergency-stop/reset", func(c *gin.Context) {
+		esm.Reset()
+		c.JSON(http.StatusOK, gin.H{"status": "emergency_stop_reset"})
 	})
 
 	// Chaos endpoints

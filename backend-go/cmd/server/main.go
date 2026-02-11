@@ -66,10 +66,13 @@ func main() {
 	// Router
 	r := handler.SetupRouter(chaosHandler, topoHandler, analysisHandler, esm, metrics, cfg.CORSAllowOrigin)
 
-	// Server with graceful shutdown
+	// Server with graceful shutdown and timeouts
 	srv := &http.Server{
-		Addr:    ":" + cfg.ServerPort,
-		Handler: r,
+		Addr:         ":" + cfg.ServerPort,
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 180 * time.Second, // long for experiment execution
+		IdleTimeout:  60 * time.Second,
 	}
 
 	go func() {
