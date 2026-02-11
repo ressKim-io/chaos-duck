@@ -2,6 +2,7 @@ import { useState } from "react";
 import { getExperiment, analyzeExperiment, generateReport, rollbackExperiment } from "./api";
 import { useApi } from "./hooks";
 import { useToast } from "./ToastContext";
+import useSSE from "./useSSE";
 import StatusBadge from "./StatusBadge";
 import { PhaseTimeline } from "./ExperimentList";
 import Spinner from "./Spinner";
@@ -176,7 +177,10 @@ function ProbeResults({ probes }) {
 }
 
 export default function ExperimentDetail({ experimentId, onBack }) {
-  const { data: exp, loading, error, reload } = useApi(() => getExperiment(experimentId), [experimentId]);
+  const { data: initialExp, loading, error, reload } = useApi(() => getExperiment(experimentId), [experimentId]);
+  const isRunning = initialExp?.status === "running" || initialExp?.status === "pending";
+  const { data: sseExp, connected: sseConnected } = useSSE(isRunning ? experimentId : null);
+  const exp = sseExp || initialExp;
   const toast = useToast();
 
   const handleRollback = async () => {
@@ -222,6 +226,12 @@ export default function ExperimentDetail({ experimentId, onBack }) {
           </button>
           <h2 className="text-lg font-semibold">{exp.config?.name}</h2>
           <StatusBadge value={exp.status} />
+          {sseConnected && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+              Live
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {(exp.status === "running" || exp.status === "completed") && (
