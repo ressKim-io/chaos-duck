@@ -52,6 +52,7 @@ func SetupRouter(
 		chaosGroup.GET("/experiments", chaos.ListExperiments)
 		chaosGroup.GET("/experiments/:experiment_id", chaos.GetExperiment)
 		chaosGroup.POST("/experiments/:experiment_id/rollback", chaos.RollbackExperiment)
+		chaosGroup.GET("/experiments/:experiment_id/stream", chaos.StreamExperiment)
 		chaosGroup.POST("/dry-run", chaos.DryRun)
 	}
 

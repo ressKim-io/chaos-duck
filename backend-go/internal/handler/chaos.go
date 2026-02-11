@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -254,4 +255,89 @@ func recordToResult(rec db.Experiment) domain.ExperimentResult {
 	}
 
 	return result
+}
+
+// terminalStatuses defines statuses that end the SSE stream
+var terminalStatuses = map[domain.ExperimentStatus]bool{
+	domain.StatusCompleted:        true,
+	domain.StatusFailed:           true,
+	domain.StatusRolledBack:       true,
+	domain.StatusEmergencyStopped: true,
+}
+
+// sendSSE writes a single SSE event to the response writer
+func sendSSE(c *gin.Context, event string, data any) {
+	j, _ := json.Marshal(data)
+	fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, j)
+	c.Writer.(http.Flusher).Flush()
+}
+
+// StreamExperiment streams experiment updates via Server-Sent Events
+func (h *ChaosHandler) StreamExperiment(c *gin.Context) {
+	if h.queries == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"detail": "Database not available"})
+		return
+	}
+	experimentID := c.Param("experiment_id")
+
+	// Verify experiment exists
+	_, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"detail": "Experiment not found"})
+		return
+	}
+
+	// Set SSE headers
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	var lastStatus string
+	var lastPhase string
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	// Send initial state immediately
+	rec, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
+	if err == nil {
+		result := recordToResult(rec)
+		lastStatus = string(result.Status)
+		lastPhase = string(result.Phase)
+		sendSSE(c, "experiment", result)
+
+		if terminalStatuses[result.Status] {
+			sendSSE(c, "done", gin.H{"status": result.Status})
+			return
+		}
+	}
+
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-ticker.C:
+			rec, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
+			if err != nil {
+				continue
+			}
+			result := recordToResult(rec)
+			currentStatus := string(result.Status)
+			currentPhase := string(result.Phase)
+
+			// Only send when state changes
+			if currentStatus != lastStatus || currentPhase != lastPhase {
+				lastStatus = currentStatus
+				lastPhase = currentPhase
+				sendSSE(c, "experiment", result)
+
+				if terminalStatuses[result.Status] {
+					sendSSE(c, "done", gin.H{"status": result.Status})
+					return
+				}
+			}
+		}
+	}
 }
