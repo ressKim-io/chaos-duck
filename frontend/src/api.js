@@ -26,7 +26,13 @@ export const fetchHealth = () => get("/health");
 export const triggerEmergencyStop = () => post("/emergency-stop");
 
 // Experiments
-export const listExperiments = () => get("/api/chaos/experiments");
+export const listExperiments = (query = {}) => {
+  const params = new URLSearchParams();
+  if (query.status) params.set("status", query.status);
+  if (query.chaos_type) params.set("chaos_type", query.chaos_type);
+  const qs = params.toString();
+  return get(`/api/chaos/experiments${qs ? `?${qs}` : ""}`);
+};
 export const getExperiment = (id) => get(`/api/chaos/experiments/${id}`);
 export const createExperiment = (config) =>
   post("/api/chaos/experiments", config);
