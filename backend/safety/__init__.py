@@ -1,12 +1,12 @@
 from .guardrails import (
     EmergencyStopManager,
     ExperimentContext,
-    HealthCheckLoop,
     emergency_stop_manager,
     require_confirmation,
     validate_blast_radius,
     with_timeout,
 )
+from .health_check import HealthCheckLoop
 from .rollback import RollbackManager, rollback_manager
 from .snapshot import SnapshotManager, snapshot_manager
 
