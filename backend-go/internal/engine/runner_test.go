@@ -1,9 +1,14 @@
 package engine
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/chaosduck/backend-go/internal/safety"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractStringSliceFromStringSlice(t *testing.T) {
@@ -58,4 +63,79 @@ func TestExtractStringSliceEmptySlice(t *testing.T) {
 func TestExtractStringSliceNilMap(t *testing.T) {
 	result := extractStringSlice(nil, "key")
 	assert.Nil(t, result)
+}
+
+func TestCallAISuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/review-steady-state", r.URL.Path)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		assert.NotNil(t, body["steady_state"])
+
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(map[string]any{
+			"review": "System looks healthy",
+			"score":  0.95,
+		})
+	}))
+	defer srv.Close()
+
+	runner := NewRunner(nil, nil,
+		safety.NewEmergencyStopManager(),
+		safety.NewRollbackManager(),
+		safety.NewSnapshotManager(nil),
+		nil, srv.URL,
+	)
+
+	result, err := runner.callAI("/review-steady-state", map[string]any{
+		"steady_state": map[string]any{"pods": 3},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "System looks healthy", result["review"])
+}
+
+func TestCallAIServiceError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte(`{"detail":"internal error"}`))
+	}))
+	defer srv.Close()
+
+	runner := NewRunner(nil, nil,
+		safety.NewEmergencyStopManager(),
+		safety.NewRollbackManager(),
+		safety.NewSnapshotManager(nil),
+		nil, srv.URL,
+	)
+
+	_, err := runner.callAI("/analyze", map[string]any{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "500")
+}
+
+func TestCallAINoURL(t *testing.T) {
+	runner := NewRunner(nil, nil,
+		safety.NewEmergencyStopManager(),
+		safety.NewRollbackManager(),
+		safety.NewSnapshotManager(nil),
+		nil, "",
+	)
+
+	_, err := runner.callAI("/analyze", map[string]any{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not configured")
+}
+
+func TestCallAIConnectionRefused(t *testing.T) {
+	runner := NewRunner(nil, nil,
+		safety.NewEmergencyStopManager(),
+		safety.NewRollbackManager(),
+		safety.NewSnapshotManager(nil),
+		nil, "http://127.0.0.1:1",
+	)
+
+	_, err := runner.callAI("/analyze", map[string]any{})
+	assert.Error(t, err)
 }

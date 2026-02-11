@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/chaosduck/backend-go/internal/db"
@@ -23,6 +26,7 @@ type Runner struct {
 	snapshotMgr *safety.SnapshotManager
 	queries     *db.Queries
 	aiBaseURL   string
+	aiClient    *http.Client
 }
 
 // NewRunner creates a new experiment runner
@@ -43,6 +47,7 @@ func NewRunner(
 		snapshotMgr: snapshotMgr,
 		queries:     queries,
 		aiBaseURL:   aiBaseURL,
+		aiClient:    &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -71,7 +76,6 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 
 	// Phase 1: Steady State
 	if cfg.TargetNamespace != nil && r.k8s != nil {
-		// Capture snapshot
 		steadyState, err := r.k8s.GetSteadyState(ctx, *cfg.TargetNamespace)
 		if err != nil {
 			log.Printf("Steady state capture failed: %v", err)
@@ -81,8 +85,44 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 		}
 	}
 
-	// Phase 2: Hypothesis (placeholder for AI integration)
+	// AI: review steady state
+	if cfg.AIEnabled && result.SteadyState != nil {
+		if review, err := r.callAI("/review-steady-state", map[string]any{
+			"steady_state": result.SteadyState,
+		}); err == nil {
+			aiInsights["steady_state_review"] = review
+		} else {
+			log.Printf("AI steady state review failed: %v", err)
+		}
+	}
+
+	// Phase 2: Hypothesis
 	result.Phase = domain.PhaseHypothesis
+	if cfg.AIEnabled {
+		body := map[string]any{
+			"topology":   result.SteadyState,
+			"target":     cfg.Name,
+			"chaos_type": string(cfg.ChaosType),
+		}
+		if resp, err := r.callAI("/hypotheses", body); err == nil {
+			if h, ok := resp["hypothesis"].(string); ok {
+				result.Hypothesis = &h
+			}
+		} else {
+			log.Printf("AI hypothesis generation failed: %v", err)
+		}
+	}
+
+	// Safety: require confirmation for production namespaces
+	if cfg.TargetNamespace != nil {
+		if err := safety.RequireConfirmation(*cfg.TargetNamespace, "prod*", cfg.Safety.RequireConfirmation); err != nil {
+			result.Status = domain.StatusFailed
+			errStr := err.Error()
+			result.Error = &errStr
+			r.persistResult(ctx, experimentID, result)
+			return result, err
+		}
+	}
 
 	// Phase 3: Inject
 	result.Phase = domain.PhaseInject
@@ -111,11 +151,41 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 		}
 	}
 
+	// AI: compare observations with steady state
+	if cfg.AIEnabled && result.Observations != nil {
+		body := map[string]any{
+			"steady_state": result.SteadyState,
+			"observations": result.Observations,
+			"hypothesis":   result.Hypothesis,
+		}
+		if analysis, err := r.callAI("/compare-observations", body); err == nil {
+			aiInsights["observation_analysis"] = analysis
+		} else {
+			log.Printf("AI observation analysis failed: %v", err)
+		}
+	}
+
 	// Phase 5: Rollback
 	result.Phase = domain.PhaseRollback
 	result.Status = domain.StatusCompleted
 	completedAt := time.Now().UTC()
 	result.CompletedAt = &completedAt
+
+	// AI: verify recovery
+	if cfg.AIEnabled && result.SteadyState != nil && cfg.TargetNamespace != nil && r.k8s != nil {
+		postState, err := r.k8s.GetSteadyState(ctx, *cfg.TargetNamespace)
+		if err == nil {
+			body := map[string]any{
+				"original_state": result.SteadyState,
+				"current_state":  postState,
+			}
+			if recovery, err := r.callAI("/verify-recovery", body); err == nil {
+				aiInsights["recovery_verification"] = recovery
+			} else {
+				log.Printf("AI recovery verification failed: %v", err)
+			}
+		}
+	}
 
 	if len(aiInsights) > 0 {
 		result.AIInsights = aiInsights
@@ -270,6 +340,45 @@ func (r *Runner) persistResult(ctx context.Context, experimentID string, result 
 			AiInsights:      aiJSON,
 		})
 	}
+}
+
+// callAI sends a JSON POST to the AI microservice and returns the response.
+// Returns nil, error if the AI service is unavailable or returns an error.
+func (r *Runner) callAI(path string, body any) (map[string]any, error) {
+	if r.aiBaseURL == "" {
+		return nil, fmt.Errorf("AI service URL not configured")
+	}
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
+
+	resp, err := r.aiClient.Post(
+		r.aiBaseURL+path,
+		"application/json",
+		bytes.NewReader(jsonBody),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("AI request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read AI response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("AI service returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parse AI response: %w", err)
+	}
+
+	return result, nil
 }
 
 func extractStringSlice(params map[string]any, key string) []string {
