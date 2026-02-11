@@ -115,9 +115,7 @@ class TestPromProbe:
     async def test_success_gt(self):
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": {"result": [{"value": [1234, "0.95"]}]}
-        }
+        mock_response.json.return_value = {"data": {"result": [{"value": [1234, "0.95"]}]}}
 
         with patch("probes.prom_probe.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -130,7 +128,7 @@ class TestPromProbe:
                 name="error-rate",
                 mode=ProbeMode.CONTINUOUS,
                 endpoint="http://prometheus:9090",
-                query='rate(http_errors[5m])',
+                query="rate(http_errors[5m])",
                 comparator="<",
                 threshold=1.0,
             )
@@ -142,9 +140,7 @@ class TestPromProbe:
     async def test_fail_threshold(self):
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": {"result": [{"value": [1234, "5.0"]}]}
-        }
+        mock_response.json.return_value = {"data": {"result": [{"value": [1234, "5.0"]}]}}
 
         with patch("probes.prom_probe.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -157,7 +153,7 @@ class TestPromProbe:
                 name="error-rate",
                 mode=ProbeMode.CONTINUOUS,
                 endpoint="http://prometheus:9090",
-                query='rate(http_errors[5m])',
+                query="rate(http_errors[5m])",
                 comparator="<",
                 threshold=1.0,
             )

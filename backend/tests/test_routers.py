@@ -128,9 +128,7 @@ class TestChaosRouter:
                 return_value={"healthy": True, "risk_level": "low"}
             )
             mock_ai.generate_hypothesis = AsyncMock(return_value="Pods will recover")
-            mock_ai.compare_observations = AsyncMock(
-                return_value={"hypothesis_validated": True}
-            )
+            mock_ai.compare_observations = AsyncMock(return_value={"hypothesis_validated": True})
             mock_ai.verify_recovery = AsyncMock(
                 return_value={"fully_recovered": True, "recovery_percentage": 100}
             )

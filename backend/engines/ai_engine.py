@@ -252,7 +252,7 @@ Respond in JSON with:
 
 Steady State (before): {steady_state}
 Observations (after): {observations}
-Hypothesis: {hypothesis or 'N/A'}
+Hypothesis: {hypothesis or "N/A"}
 
 Respond in JSON with:
 - hypothesis_validated: boolean
@@ -309,7 +309,7 @@ Respond in JSON with:
 a structured experiment configuration.
 
 User Input: "{text}"
-Available Topology: {topology or 'N/A'}
+Available Topology: {topology or "N/A"}
 
 Respond with a single JSON object containing:
 - name: descriptive experiment name

@@ -97,17 +97,21 @@ class TestAwsSnapshotCapture:
 
         mock_ec2 = MagicMock()
         mock_ec2.describe_instances.return_value = {
-            "Reservations": [{
-                "Instances": [{
-                    "InstanceId": "i-123",
-                    "InstanceType": "t3.micro",
-                    "State": {"Name": "running"},
-                    "VpcId": "vpc-abc",
-                    "SubnetId": "subnet-xyz",
-                    "SecurityGroups": [{"GroupId": "sg-123"}],
-                    "Tags": [{"Key": "Name", "Value": "web"}],
-                }]
-            }]
+            "Reservations": [
+                {
+                    "Instances": [
+                        {
+                            "InstanceId": "i-123",
+                            "InstanceType": "t3.micro",
+                            "State": {"Name": "running"},
+                            "VpcId": "vpc-abc",
+                            "SubnetId": "subnet-xyz",
+                            "SecurityGroups": [{"GroupId": "sg-123"}],
+                            "Tags": [{"Key": "Name", "Value": "web"}],
+                        }
+                    ]
+                }
+            ]
         }
         mgr._boto3_ec2 = mock_ec2
         mgr._boto3_rds = MagicMock()
@@ -128,18 +132,20 @@ class TestAwsSnapshotCapture:
 
         mock_rds = MagicMock()
         mock_rds.describe_db_clusters.return_value = {
-            "DBClusters": [{
-                "DBClusterIdentifier": "my-cluster",
-                "Status": "available",
-                "Engine": "aurora-mysql",
-                "EngineVersion": "8.0.28",
-                "Endpoint": "my-cluster.abc.us-east-1.rds.amazonaws.com",
-                "ReaderEndpoint": "my-cluster-ro.abc.us-east-1.rds.amazonaws.com",
-                "DBClusterMembers": [
-                    {"DBInstanceIdentifier": "inst-1", "IsClusterWriter": True},
-                    {"DBInstanceIdentifier": "inst-2", "IsClusterWriter": False},
-                ],
-            }]
+            "DBClusters": [
+                {
+                    "DBClusterIdentifier": "my-cluster",
+                    "Status": "available",
+                    "Engine": "aurora-mysql",
+                    "EngineVersion": "8.0.28",
+                    "Endpoint": "my-cluster.abc.us-east-1.rds.amazonaws.com",
+                    "ReaderEndpoint": "my-cluster-ro.abc.us-east-1.rds.amazonaws.com",
+                    "DBClusterMembers": [
+                        {"DBInstanceIdentifier": "inst-1", "IsClusterWriter": True},
+                        {"DBInstanceIdentifier": "inst-2", "IsClusterWriter": False},
+                    ],
+                }
+            ]
         }
         mgr._boto3_ec2 = MagicMock()
         mgr._boto3_rds = mock_rds
@@ -215,12 +221,16 @@ class TestSnapshotRestore:
 
         mock_ec2 = MagicMock()
         mock_ec2.describe_instances.return_value = {
-            "Reservations": [{
-                "Instances": [{
-                    "InstanceId": "i-123",
-                    "State": {"Name": "stopped"},
-                }]
-            }]
+            "Reservations": [
+                {
+                    "Instances": [
+                        {
+                            "InstanceId": "i-123",
+                            "State": {"Name": "stopped"},
+                        }
+                    ]
+                }
+            ]
         }
         mgr._boto3_ec2 = mock_ec2
         mgr._boto3_rds = MagicMock()

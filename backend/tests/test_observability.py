@@ -24,14 +24,23 @@ class TestMetrics:
 class TestPrometheusMiddleware:
     def test_normalize_path_static(self):
         assert PrometheusMiddleware._normalize_path("/health") == "/health"
-        assert PrometheusMiddleware._normalize_path("/api/chaos/experiments") == "/api/chaos/experiments"
+        assert (
+            PrometheusMiddleware._normalize_path("/api/chaos/experiments")
+            == "/api/chaos/experiments"
+        )
 
     def test_normalize_path_with_id(self):
         # 8-char hex IDs get replaced
-        assert PrometheusMiddleware._normalize_path("/api/chaos/experiments/a1b2c3d4") == "/api/chaos/experiments/{id}"
+        assert (
+            PrometheusMiddleware._normalize_path("/api/chaos/experiments/a1b2c3d4")
+            == "/api/chaos/experiments/{id}"
+        )
 
     def test_normalize_path_with_dry_prefix(self):
-        assert PrometheusMiddleware._normalize_path("/api/chaos/experiments/dry-1234") == "/api/chaos/experiments/{id}"
+        assert (
+            PrometheusMiddleware._normalize_path("/api/chaos/experiments/dry-1234")
+            == "/api/chaos/experiments/{id}"
+        )
 
 
 class TestMetricsEndpoint:

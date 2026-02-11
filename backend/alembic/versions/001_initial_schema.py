@@ -4,6 +4,7 @@ Revision ID: 001
 Revises:
 Create Date: 2026-02-11
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -39,9 +40,7 @@ def upgrade() -> None:
         sa.Column("type", sa.String(10), nullable=False),
         sa.Column("namespace", sa.String(255), nullable=True),
         sa.Column("data", sa.JSON, nullable=False),
-        sa.Column(
-            "captured_at", sa.DateTime(timezone=True), server_default=sa.func.now()
-        ),
+        sa.Column("captured_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
 
     op.create_table(
@@ -52,9 +51,7 @@ def upgrade() -> None:
         sa.Column("mode", sa.String(20), nullable=False),
         sa.Column("result", sa.JSON, nullable=False),
         sa.Column("passed", sa.Boolean, nullable=False),
-        sa.Column(
-            "executed_at", sa.DateTime(timezone=True), server_default=sa.func.now()
-        ),
+        sa.Column("executed_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
 
     op.create_table(
@@ -66,9 +63,7 @@ def upgrade() -> None:
         sa.Column("confidence", sa.Float, nullable=False),
         sa.Column("recommendations", sa.JSON, nullable=False),
         sa.Column("resilience_score", sa.Float, nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
 
 

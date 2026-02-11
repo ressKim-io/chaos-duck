@@ -313,9 +313,7 @@ class TestAiEngine:
 
     async def test_parse_natural_language_invalid_response(self, mock_anthropic):
         mock_anthropic.messages.create.return_value.content = [
-            MagicMock(
-                text='{"name": "bad", "chaos_type": "invalid_type"}'
-            )
+            MagicMock(text='{"name": "bad", "chaos_type": "invalid_type"}')
         ]
         engine = self._make_engine(mock_anthropic)
         with pytest.raises(Exception):

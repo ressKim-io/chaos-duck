@@ -133,7 +133,9 @@ class ExperimentContext:
             )
 
         # Start health check loop if continuous probes are configured
-        continuous_probes = [p for p in self.probes if hasattr(p, "mode") and p.mode == "continuous"]
+        continuous_probes = [
+            p for p in self.probes if hasattr(p, "mode") and p.mode == "continuous"
+        ]
         if continuous_probes:
             self._health_loop = HealthCheckLoop(
                 experiment_id=self.experiment_id,

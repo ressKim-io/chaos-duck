@@ -68,9 +68,7 @@ class TestHealthCheckLoop:
 
     async def test_no_probes_always_passes(self):
         rollback_fn = AsyncMock()
-        loop = HealthCheckLoop(
-            "exp1", [], interval=0, failure_threshold=1, on_failure=rollback_fn
-        )
+        loop = HealthCheckLoop("exp1", [], interval=0, failure_threshold=1, on_failure=rollback_fn)
         loop.start()
         await asyncio.sleep(0.2)
         await loop.stop()

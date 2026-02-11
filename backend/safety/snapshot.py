@@ -71,34 +71,38 @@ class SnapshotManager:
             # Capture pod specs
             pods = v1.list_namespaced_pod(namespace, label_selector=label_selector)
             for pod in pods.items:
-                pods_data.append({
-                    "name": pod.metadata.name,
-                    "namespace": pod.metadata.namespace,
-                    "labels": pod.metadata.labels or {},
-                    "phase": pod.status.phase,
-                    "containers": [
-                        {
-                            "name": c.name,
-                            "image": c.image,
-                        }
-                        for c in (pod.spec.containers or [])
-                    ],
-                    "node_name": pod.spec.node_name,
-                })
+                pods_data.append(
+                    {
+                        "name": pod.metadata.name,
+                        "namespace": pod.metadata.namespace,
+                        "labels": pod.metadata.labels or {},
+                        "phase": pod.status.phase,
+                        "containers": [
+                            {
+                                "name": c.name,
+                                "image": c.image,
+                            }
+                            for c in (pod.spec.containers or [])
+                        ],
+                        "node_name": pod.spec.node_name,
+                    }
+                )
 
             # Capture deployment specs
             deployments = apps_v1.list_namespaced_deployment(
                 namespace, label_selector=label_selector
             )
             for dep in deployments.items:
-                deployments_data.append({
-                    "name": dep.metadata.name,
-                    "namespace": dep.metadata.namespace,
-                    "replicas": dep.spec.replicas,
-                    "ready_replicas": dep.status.ready_replicas or 0,
-                    "labels": dep.metadata.labels or {},
-                    "selector": dep.spec.selector.match_labels or {},
-                })
+                deployments_data.append(
+                    {
+                        "name": dep.metadata.name,
+                        "namespace": dep.metadata.namespace,
+                        "replicas": dep.spec.replicas,
+                        "ready_replicas": dep.status.ready_replicas or 0,
+                        "labels": dep.metadata.labels or {},
+                        "selector": dep.spec.selector.match_labels or {},
+                    }
+                )
 
             # Capture service specs
             services = v1.list_namespaced_service(namespace, label_selector=label_selector)
@@ -126,9 +130,7 @@ class SnapshotManager:
             )
 
         except Exception as e:
-            logger.warning(
-                "K8s API not available for snapshot, using empty resources: %s", e
-            )
+            logger.warning("K8s API not available for snapshot, using empty resources: %s", e)
 
         snapshot = {
             "type": "k8s",
@@ -174,19 +176,13 @@ class SnapshotManager:
                             "vpc_id": instance.get("VpcId"),
                             "subnet_id": instance.get("SubnetId"),
                             "security_groups": [
-                                sg["GroupId"]
-                                for sg in instance.get("SecurityGroups", [])
+                                sg["GroupId"] for sg in instance.get("SecurityGroups", [])
                             ],
-                            "tags": {
-                                t["Key"]: t["Value"]
-                                for t in instance.get("Tags", [])
-                            },
+                            "tags": {t["Key"]: t["Value"] for t in instance.get("Tags", [])},
                         }
 
             elif resource_type == "rds":
-                response = rds.describe_db_clusters(
-                    DBClusterIdentifier=resource_id
-                )
+                response = rds.describe_db_clusters(DBClusterIdentifier=resource_id)
                 for cluster in response.get("DBClusters", []):
                     state = {
                         "cluster_id": cluster["DBClusterIdentifier"],
@@ -212,9 +208,7 @@ class SnapshotManager:
             )
 
         except Exception as e:
-            logger.warning(
-                "AWS API not available for snapshot, using empty state: %s", e
-            )
+            logger.warning("AWS API not available for snapshot, using empty state: %s", e)
 
         snapshot = {
             "type": "aws",
@@ -274,11 +268,13 @@ class SnapshotManager:
             # Find pods that existed in snapshot but are missing now
             for pod_name, pod_data in snapshot_pods.items():
                 if pod_name not in current_pod_names:
-                    actions.append({
-                        "action": "pod_missing",
-                        "name": pod_name,
-                        "status": "detected",
-                    })
+                    actions.append(
+                        {
+                            "action": "pod_missing",
+                            "name": pod_name,
+                            "status": "detected",
+                        }
+                    )
                     logger.warning(
                         "Pod %s was in snapshot but is now missing in %s",
                         pod_name,
@@ -311,12 +307,14 @@ class SnapshotManager:
                         for inst in res.get("Instances", []):
                             current_state = inst.get("State", {}).get("Name")
                             if current_state != original_state:
-                                actions.append({
-                                    "action": "state_drift",
-                                    "instance_id": instance_id,
-                                    "snapshot_state": original_state,
-                                    "current_state": current_state,
-                                })
+                                actions.append(
+                                    {
+                                        "action": "state_drift",
+                                        "instance_id": instance_id,
+                                        "snapshot_state": original_state,
+                                        "current_state": current_state,
+                                    }
+                                )
 
         except Exception as e:
             logger.error("AWS restore check failed: %s", e)
