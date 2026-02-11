@@ -61,7 +61,8 @@ func (e *AwsEngine) StopEC2(ctx context.Context, instanceIDs []string, dryRun bo
 	log.Printf("Stopped EC2 instances: %v", instanceIDs)
 
 	rollback := func() (map[string]any, error) {
-		_, err := e.ec2Client.StartInstances(ctx, &ec2.StartInstancesInput{
+		rbCtx := context.Background()
+		_, err := e.ec2Client.StartInstances(rbCtx, &ec2.StartInstancesInput{
 			InstanceIds: instanceIDs,
 		})
 		if err != nil {
@@ -139,17 +140,26 @@ func (e *AwsEngine) BlackholeRoute(ctx context.Context, routeTableID, destCIDR s
 		}
 	}
 
-	_, err = e.ec2Client.CreateRoute(ctx, &ec2.CreateRouteInput{
-		RouteTableId:         aws.String(routeTableID),
-		DestinationCidrBlock: aws.String(destCIDR),
-	})
+	// Use ReplaceRoute if route exists, CreateRoute otherwise
+	if originalGateway != nil {
+		_, err = e.ec2Client.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{
+			RouteTableId:         aws.String(routeTableID),
+			DestinationCidrBlock: aws.String(destCIDR),
+		})
+	} else {
+		_, err = e.ec2Client.CreateRoute(ctx, &ec2.CreateRouteInput{
+			RouteTableId:         aws.String(routeTableID),
+			DestinationCidrBlock: aws.String(destCIDR),
+		})
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create blackhole route: %w", err)
 	}
 	log.Printf("Created blackhole route: %s -> %s", routeTableID, destCIDR)
 
 	rollback := func() (map[string]any, error) {
-		_, err := e.ec2Client.DeleteRoute(ctx, &ec2.DeleteRouteInput{
+		rbCtx := context.Background()
+		_, err := e.ec2Client.DeleteRoute(rbCtx, &ec2.DeleteRouteInput{
 			RouteTableId:         aws.String(routeTableID),
 			DestinationCidrBlock: aws.String(destCIDR),
 		})
@@ -157,7 +167,7 @@ func (e *AwsEngine) BlackholeRoute(ctx context.Context, routeTableID, destCIDR s
 			return nil, fmt.Errorf("delete route: %w", err)
 		}
 		if originalGateway != nil {
-			_, err := e.ec2Client.CreateRoute(ctx, &ec2.CreateRouteInput{
+			_, err := e.ec2Client.CreateRoute(rbCtx, &ec2.CreateRouteInput{
 				RouteTableId:         aws.String(routeTableID),
 				DestinationCidrBlock: aws.String(destCIDR),
 				GatewayId:            originalGateway,

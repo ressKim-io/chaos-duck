@@ -105,11 +105,12 @@ func (e *K8sEngine) PodDelete(ctx context.Context, namespace, labelSelector stri
 	log.Printf("Deleted %d pods in %s", len(podNames), namespace)
 
 	rollback := func() (map[string]any, error) {
+		rbCtx := context.Background()
 		for _, pod := range savedPods {
 			pod.ResourceVersion = ""
 			pod.Status = corev1.PodStatus{}
 			pod.UID = ""
-			if _, err := e.clientset.CoreV1().Pods(namespace).Create(ctx, &pod, metav1.CreateOptions{}); err != nil {
+			if _, err := e.clientset.CoreV1().Pods(namespace).Create(rbCtx, &pod, metav1.CreateOptions{}); err != nil {
 				log.Printf("Rollback: failed to recreate pod %s: %v", pod.Name, err)
 			}
 		}
@@ -142,13 +143,18 @@ func (e *K8sEngine) NetworkLatency(ctx context.Context, namespace, labelSelector
 	}
 
 	for _, pod := range pods.Items {
-		e.execInPod(ctx, namespace, pod.Name, []string{"tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay", fmt.Sprintf("%dms", latencyMs)})
+		if _, err := e.execInPod(ctx, namespace, pod.Name, []string{"tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay", fmt.Sprintf("%dms", latencyMs)}); err != nil {
+			return nil, fmt.Errorf("inject latency on %s: %w", pod.Name, err)
+		}
 	}
 	log.Printf("Injected %dms latency on %d pods in %s", latencyMs, len(podNames), namespace)
 
 	rollback := func() (map[string]any, error) {
+		rbCtx := context.Background()
 		for _, pod := range pods.Items {
-			e.execInPod(ctx, namespace, pod.Name, []string{"tc", "qdisc", "del", "dev", "eth0", "root"})
+			if _, err := e.execInPod(rbCtx, namespace, pod.Name, []string{"tc", "qdisc", "del", "dev", "eth0", "root"}); err != nil {
+				log.Printf("Rollback: remove latency from %s failed: %v", pod.Name, err)
+			}
 		}
 		return map[string]any{"removed_latency": len(podNames)}, nil
 	}
@@ -178,13 +184,18 @@ func (e *K8sEngine) NetworkLoss(ctx context.Context, namespace, labelSelector st
 	}
 
 	for _, pod := range pods.Items {
-		e.execInPod(ctx, namespace, pod.Name, []string{"tc", "qdisc", "add", "dev", "eth0", "root", "netem", "loss", fmt.Sprintf("%d%%", lossPercent)})
+		if _, err := e.execInPod(ctx, namespace, pod.Name, []string{"tc", "qdisc", "add", "dev", "eth0", "root", "netem", "loss", fmt.Sprintf("%d%%", lossPercent)}); err != nil {
+			return nil, fmt.Errorf("inject loss on %s: %w", pod.Name, err)
+		}
 	}
 	log.Printf("Injected %d%% packet loss on %d pods in %s", lossPercent, len(podNames), namespace)
 
 	rollback := func() (map[string]any, error) {
+		rbCtx := context.Background()
 		for _, pod := range pods.Items {
-			e.execInPod(ctx, namespace, pod.Name, []string{"tc", "qdisc", "del", "dev", "eth0", "root"})
+			if _, err := e.execInPod(rbCtx, namespace, pod.Name, []string{"tc", "qdisc", "del", "dev", "eth0", "root"}); err != nil {
+				log.Printf("Rollback: remove loss from %s failed: %v", pod.Name, err)
+			}
 		}
 		return map[string]any{"removed_loss": len(podNames)}, nil
 	}
@@ -214,16 +225,21 @@ func (e *K8sEngine) CPUStress(ctx context.Context, namespace, labelSelector stri
 	}
 
 	for _, pod := range pods.Items {
-		e.execInPod(ctx, namespace, pod.Name, []string{
+		if _, err := e.execInPod(ctx, namespace, pod.Name, []string{
 			"stress-ng", "--cpu", fmt.Sprintf("%d", cores),
 			"--timeout", fmt.Sprintf("%ds", durationSec), "--quiet",
-		})
+		}); err != nil {
+			return nil, fmt.Errorf("cpu stress on %s: %w", pod.Name, err)
+		}
 	}
 	log.Printf("CPU stress on %d pods in %s", len(podNames), namespace)
 
 	rollback := func() (map[string]any, error) {
+		rbCtx := context.Background()
 		for _, pod := range pods.Items {
-			e.execInPod(ctx, namespace, pod.Name, []string{"pkill", "-f", "stress-ng"})
+			if _, err := e.execInPod(rbCtx, namespace, pod.Name, []string{"pkill", "-f", "stress-ng"}); err != nil {
+				log.Printf("Rollback: kill stress on %s failed: %v", pod.Name, err)
+			}
 		}
 		return map[string]any{"killed_stress": len(podNames)}, nil
 	}
@@ -253,16 +269,21 @@ func (e *K8sEngine) MemoryStress(ctx context.Context, namespace, labelSelector s
 	}
 
 	for _, pod := range pods.Items {
-		e.execInPod(ctx, namespace, pod.Name, []string{
+		if _, err := e.execInPod(ctx, namespace, pod.Name, []string{
 			"stress-ng", "--vm", "1", "--vm-bytes", memoryBytes,
 			"--timeout", fmt.Sprintf("%ds", durationSec), "--quiet",
-		})
+		}); err != nil {
+			return nil, fmt.Errorf("memory stress on %s: %w", pod.Name, err)
+		}
 	}
 	log.Printf("Memory stress on %d pods in %s", len(podNames), namespace)
 
 	rollback := func() (map[string]any, error) {
+		rbCtx := context.Background()
 		for _, pod := range pods.Items {
-			e.execInPod(ctx, namespace, pod.Name, []string{"pkill", "-f", "stress-ng"})
+			if _, err := e.execInPod(rbCtx, namespace, pod.Name, []string{"pkill", "-f", "stress-ng"}); err != nil {
+				log.Printf("Rollback: kill stress on %s failed: %v", pod.Name, err)
+			}
 		}
 		return map[string]any{"killed_stress": len(podNames)}, nil
 	}
@@ -385,7 +406,7 @@ func (e *K8sEngine) GetSteadyState(ctx context.Context, namespace string) (map[s
 	}, nil
 }
 
-func (e *K8sEngine) execInPod(ctx context.Context, namespace, podName string, command []string) string {
+func (e *K8sEngine) execInPod(ctx context.Context, namespace, podName string, command []string) (string, error) {
 	req := e.clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).
@@ -397,20 +418,19 @@ func (e *K8sEngine) execInPod(ctx context.Context, namespace, podName string, co
 			Stderr:  true,
 		}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(e.restConfig, "POST", req.URL())
+	executor, err := remotecommand.NewSPDYExecutor(e.restConfig, "POST", req.URL())
 	if err != nil {
-		log.Printf("exec setup failed for %s: %v", podName, err)
-		return ""
+		return "", fmt.Errorf("exec setup for %s: %w", podName, err)
 	}
 
 	var stdout, stderr strings.Builder
-	if err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+	if err := executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdout: &stdout,
 		Stderr: &stderr,
 	}); err != nil {
-		log.Printf("exec in %s failed: %v", podName, err)
+		return stdout.String(), fmt.Errorf("exec in %s: %w (stderr: %s)", podName, err, stderr.String())
 	}
-	return stdout.String()
+	return stdout.String(), nil
 }
 
 func podNameList(pods *corev1.PodList) []string {
