@@ -6,6 +6,7 @@ import StatusBadge from "./StatusBadge";
 import Dashboard from "./Dashboard";
 import ExperimentList from "./ExperimentList";
 import ExperimentForm from "./ExperimentForm";
+import ExperimentDetail from "./ExperimentDetail";
 import TopologyView from "./TopologyView";
 import AnalysisPanel from "./AnalysisPanel";
 
@@ -14,6 +15,7 @@ const TABS = ["Dashboard", "Experiments", "Topology", "Analysis"];
 export default function App() {
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [showForm, setShowForm] = useState(false);
+  const [selectedExperimentId, setSelectedExperimentId] = useState(null);
   const { data: health } = usePolling(fetchHealth, 10000);
   const emergencyStopped = health?.emergency_stop ?? false;
 
@@ -58,7 +60,7 @@ export default function App() {
         {TABS.map((tab) => (
           <button
             key={tab}
-            onClick={() => { setActiveTab(tab); setShowForm(false); }}
+            onClick={() => { setActiveTab(tab); setShowForm(false); setSelectedExperimentId(null); }}
             className={`-mb-px border-b-2 px-5 py-2.5 text-sm font-medium transition-colors ${
               activeTab === tab
                 ? "border-blue-600 text-blue-600"
@@ -74,21 +76,28 @@ export default function App() {
       <main>
         {activeTab === "Dashboard" && <Dashboard onNavigate={setActiveTab} />}
         {activeTab === "Experiments" && (
-          <>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Chaos Experiments</h2>
-              <button
-                onClick={() => setShowForm((v) => !v)}
-                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                {showForm ? "Close" : "+ New Experiment"}
-              </button>
-            </div>
-            {showForm && (
-              <ExperimentForm onCreated={() => setShowForm(false)} />
-            )}
-            <ExperimentList />
-          </>
+          selectedExperimentId ? (
+            <ExperimentDetail
+              experimentId={selectedExperimentId}
+              onBack={() => setSelectedExperimentId(null)}
+            />
+          ) : (
+            <>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Chaos Experiments</h2>
+                <button
+                  onClick={() => setShowForm((v) => !v)}
+                  className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  {showForm ? "Close" : "+ New Experiment"}
+                </button>
+              </div>
+              {showForm && (
+                <ExperimentForm onCreated={() => setShowForm(false)} />
+              )}
+              <ExperimentList onSelect={setSelectedExperimentId} />
+            </>
+          )
         )}
         {activeTab === "Topology" && <TopologyView />}
         {activeTab === "Analysis" && <AnalysisPanel />}
