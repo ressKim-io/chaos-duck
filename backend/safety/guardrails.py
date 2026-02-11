@@ -2,7 +2,6 @@ import asyncio
 import fnmatch
 import functools
 import logging
-from typing import Any, Optional
 
 from models.experiment import ExperimentConfig
 from safety.rollback import rollback_manager
@@ -51,13 +50,9 @@ def with_timeout(seconds: int = 30):
         async def wrapper(*args, **kwargs):
             try:
                 return await asyncio.wait_for(func(*args, **kwargs), timeout=clamped)
-            except asyncio.TimeoutError:
-                logger.error(
-                    "Timeout after %ds in %s", clamped, func.__name__
-                )
-                raise TimeoutError(
-                    f"Operation {func.__name__} timed out after {clamped}s"
-                )
+            except TimeoutError:
+                logger.error("Timeout after %ds in %s", clamped, func.__name__)
+                raise TimeoutError(f"Operation {func.__name__} timed out after {clamped}s")
 
         return wrapper
 
@@ -74,7 +69,7 @@ def require_confirmation(namespace_pattern: str = "prod*"):
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            config: Optional[ExperimentConfig] = kwargs.get("config")
+            config: ExperimentConfig | None = kwargs.get("config")
             if config and config.target_namespace:
                 if fnmatch.fnmatch(config.target_namespace, namespace_pattern):
                     if not config.safety.require_confirmation:
@@ -90,9 +85,7 @@ def require_confirmation(namespace_pattern: str = "prod*"):
     return decorator
 
 
-def validate_blast_radius(
-    affected_count: int, total_count: int, max_ratio: float = 0.3
-) -> bool:
+def validate_blast_radius(affected_count: int, total_count: int, max_ratio: float = 0.3) -> bool:
     """Check that blast radius does not exceed the allowed ratio."""
     if total_count == 0:
         return True

@@ -1,6 +1,6 @@
 import logging
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +19,14 @@ class SnapshotManager:
         self,
         experiment_id: str,
         namespace: str,
-        labels: Optional[dict[str, str]] = None,
+        labels: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Capture K8s resource state before mutation."""
         snapshot = {
             "type": "k8s",
             "namespace": namespace,
             "labels": labels or {},
-            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "captured_at": datetime.now(UTC).isoformat(),
             "resources": {
                 "pods": [],
                 "services": [],
@@ -49,7 +49,7 @@ class SnapshotManager:
             "type": "aws",
             "resource_type": resource_type,
             "resource_id": resource_id,
-            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "captured_at": datetime.now(UTC).isoformat(),
             "state": {},
         }
         # Actual boto3 calls will be added when AWS is configured
@@ -57,7 +57,7 @@ class SnapshotManager:
         logger.info("AWS snapshot captured for experiment %s", experiment_id)
         return snapshot
 
-    def get_snapshot(self, experiment_id: str) -> Optional[dict[str, Any]]:
+    def get_snapshot(self, experiment_id: str) -> dict[str, Any] | None:
         return self._snapshots.get(experiment_id)
 
     def delete_snapshot(self, experiment_id: str) -> None:

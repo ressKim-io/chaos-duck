@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -39,18 +39,18 @@ class SafetyConfig(BaseModel):
     require_confirmation: bool = Field(default=False)
     max_blast_radius: float = Field(default=0.3, ge=0.0, le=1.0)
     dry_run: bool = Field(default=False)
-    namespace_pattern: Optional[str] = Field(default=None)
+    namespace_pattern: str | None = Field(default=None)
 
 
 class ExperimentConfig(BaseModel):
     name: str
     chaos_type: ChaosType
-    target_namespace: Optional[str] = None
-    target_labels: Optional[dict[str, str]] = None
-    target_resource: Optional[str] = None
+    target_namespace: str | None = None
+    target_labels: dict[str, str] | None = None
+    target_resource: str | None = None
     parameters: dict = Field(default_factory=dict)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class ExperimentResult(BaseModel):
@@ -58,11 +58,11 @@ class ExperimentResult(BaseModel):
     config: ExperimentConfig
     status: ExperimentStatus = ExperimentStatus.PENDING
     phase: ExperimentPhase = ExperimentPhase.STEADY_STATE
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    steady_state: Optional[dict] = None
-    hypothesis: Optional[str] = None
-    injection_result: Optional[dict] = None
-    observations: Optional[dict] = None
-    rollback_result: Optional[dict] = None
-    error: Optional[str] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    steady_state: dict | None = None
+    hypothesis: str | None = None
+    injection_result: dict | None = None
+    observations: dict | None = None
+    rollback_result: dict | None = None
+    error: str | None = None

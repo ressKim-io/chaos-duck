@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -27,7 +27,7 @@ class AiEngine:
     resilience scoring, and report generation.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "claude-sonnet-4-5-20250929"):
+    def __init__(self, api_key: str | None = None, model: str = "claude-sonnet-4-5-20250929"):
         self._api_key = api_key
         self._model = model
         self._client = None
@@ -35,6 +35,7 @@ class AiEngine:
     def _get_client(self):
         if self._client is None:
             import anthropic
+
             self._client = anthropic.Anthropic(api_key=self._api_key)
         return self._client
 
@@ -67,6 +68,7 @@ Respond in JSON with these fields:
         )
 
         import json
+
         text = message.content[0].text
         # Extract JSON from response
         start = text.find("{")
@@ -125,6 +127,7 @@ Respond in JSON with:
         )
 
         import json
+
         text = message.content[0].text
         start = text.find("{")
         end = text.rfind("}") + 1
@@ -133,7 +136,7 @@ Respond in JSON with:
     async def generate_report(
         self,
         experiment_data: dict[str, Any],
-        analysis: Optional[dict[str, Any]] = None,
+        analysis: dict[str, Any] | None = None,
     ) -> str:
         """Generate a human-readable report for an experiment."""
         client = self._get_client()

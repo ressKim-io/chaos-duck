@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -26,7 +26,7 @@ class TopologyNode(BaseModel):
     id: str
     name: str
     resource_type: ResourceType
-    namespace: Optional[str] = None
+    namespace: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
     health: HealthStatus = HealthStatus.UNKNOWN
     metadata: dict = Field(default_factory=dict)
@@ -42,11 +42,11 @@ class TopologyEdge(BaseModel):
 class InfraTopology(BaseModel):
     nodes: list[TopologyNode] = Field(default_factory=list)
     edges: list[TopologyEdge] = Field(default_factory=list)
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
 
 
 class ResilienceScore(BaseModel):
     overall: float = Field(ge=0.0, le=100.0)
     categories: dict[str, float] = Field(default_factory=dict)
     recommendations: list[str] = Field(default_factory=list)
-    details: Optional[str] = None
+    details: str | None = None

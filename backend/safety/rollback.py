@@ -1,6 +1,7 @@
 import logging
 from collections import defaultdict
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +39,22 @@ class RollbackManager:
         for description, rollback_fn in reversed(stack):
             try:
                 result = await rollback_fn()
-                results.append({
-                    "description": description,
-                    "status": "success",
-                    "result": result,
-                })
+                results.append(
+                    {
+                        "description": description,
+                        "status": "success",
+                        "result": result,
+                    }
+                )
                 logger.info("Rollback success: %s", description)
             except Exception as e:
-                results.append({
-                    "description": description,
-                    "status": "failed",
-                    "error": str(e),
-                })
+                results.append(
+                    {
+                        "description": description,
+                        "status": "failed",
+                        "error": str(e),
+                    }
+                )
                 logger.error("Rollback failed: %s - %s", description, e)
         return results
 

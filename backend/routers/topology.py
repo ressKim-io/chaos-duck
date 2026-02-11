@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 
-from models.topology import InfraTopology
-from engines.k8s_engine import K8sEngine
 from engines.aws_engine import AwsEngine
+from engines.k8s_engine import K8sEngine
+from models.topology import InfraTopology
 
 router = APIRouter()
 k8s_engine = K8sEngine()

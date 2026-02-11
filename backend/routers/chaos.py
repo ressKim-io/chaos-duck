@@ -1,18 +1,18 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
+from engines.aws_engine import AwsEngine
+from engines.k8s_engine import K8sEngine
 from models.experiment import (
     ExperimentConfig,
     ExperimentPhase,
     ExperimentResult,
     ExperimentStatus,
 )
+from safety.guardrails import ExperimentContext, emergency_stop_manager
 from safety.rollback import rollback_manager
-from safety.guardrails import emergency_stop_manager, ExperimentContext
-from engines.k8s_engine import K8sEngine
-from engines.aws_engine import AwsEngine
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ async def create_experiment(config: ExperimentConfig):
         config=config,
         status=ExperimentStatus.RUNNING,
         phase=ExperimentPhase.STEADY_STATE,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
     )
     experiments[experiment_id] = result
 
@@ -42,9 +42,7 @@ async def create_experiment(config: ExperimentConfig):
         try:
             # Phase 1: Steady State
             if config.target_namespace:
-                result.steady_state = await k8s_engine.get_steady_state(
-                    config.target_namespace
-                )
+                result.steady_state = await k8s_engine.get_steady_state(config.target_namespace)
 
             # Phase 2: Inject
             result.phase = ExperimentPhase.INJECT
@@ -53,20 +51,16 @@ async def create_experiment(config: ExperimentConfig):
             result.injection_result = injection_result
 
             if rollback_fn:
-                rollback_manager.push(
-                    experiment_id, rollback_fn, f"{config.chaos_type.value}"
-                )
+                rollback_manager.push(experiment_id, rollback_fn, f"{config.chaos_type.value}")
 
             # Phase 3: Observe
             result.phase = ExperimentPhase.OBSERVE
             if config.target_namespace:
-                result.observations = await k8s_engine.get_steady_state(
-                    config.target_namespace
-                )
+                result.observations = await k8s_engine.get_steady_state(config.target_namespace)
 
             result.status = ExperimentStatus.COMPLETED
             result.phase = ExperimentPhase.ROLLBACK
-            result.completed_at = datetime.now(timezone.utc)
+            result.completed_at = datetime.now(UTC)
 
         except Exception as e:
             result.status = ExperimentStatus.FAILED
@@ -110,8 +104,8 @@ async def dry_run(config: ExperimentConfig):
         experiment_id=experiment_id,
         config=config,
         status=ExperimentStatus.COMPLETED,
-        started_at=datetime.now(timezone.utc),
-        completed_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
     )
 
     chaos_fn = _get_chaos_function(config)
@@ -204,14 +198,16 @@ async def _run_memory_stress(config: ExperimentConfig):
 async def _run_ec2_stop(config: ExperimentConfig):
     instance_ids = config.parameters.get("instance_ids", [])
     return await aws_engine.stop_ec2(
-        instance_ids, dry_run=config.safety.dry_run,
+        instance_ids,
+        dry_run=config.safety.dry_run,
     )
 
 
 async def _run_rds_failover(config: ExperimentConfig):
     db_cluster_id = config.parameters.get("db_cluster_id", "")
     return await aws_engine.failover_rds(
-        db_cluster_id, dry_run=config.safety.dry_run,
+        db_cluster_id,
+        dry_run=config.safety.dry_run,
     )
 
 

@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from models.experiment import ExperimentConfig
 from models.topology import (
@@ -46,9 +47,9 @@ class K8sEngine:
         self,
         namespace: str,
         label_selector: str,
-        config: Optional[ExperimentConfig] = None,
+        config: ExperimentConfig | None = None,
         dry_run: bool = False,
-    ) -> tuple[dict[str, Any], Optional[Callable]]:
+    ) -> tuple[dict[str, Any], Callable | None]:
         """Delete pods matching the label selector."""
         self._check_emergency_stop()
 
@@ -57,18 +58,14 @@ class K8sEngine:
 
         pods = v1.list_namespaced_pod(namespace, label_selector=label_selector)
         pod_names = [p.metadata.name for p in pods.items]
-        total_pods = len(
-            v1.list_namespaced_pod(namespace).items
-        )
+        total_pods = len(v1.list_namespaced_pod(namespace).items)
 
         if not validate_blast_radius(
             len(pod_names),
             total_pods,
             config.safety.max_blast_radius if config else 0.3,
         ):
-            raise ValueError(
-                f"Blast radius exceeded: {len(pod_names)}/{total_pods} pods"
-            )
+            raise ValueError(f"Blast radius exceeded: {len(pod_names)}/{total_pods} pods")
 
         if dry_run:
             return {"action": "pod_delete", "pods": pod_names, "dry_run": True}, None
@@ -97,9 +94,9 @@ class K8sEngine:
         namespace: str,
         label_selector: str,
         latency_ms: int = 100,
-        config: Optional[ExperimentConfig] = None,
+        config: ExperimentConfig | None = None,
         dry_run: bool = False,
-    ) -> tuple[dict[str, Any], Optional[Callable]]:
+    ) -> tuple[dict[str, Any], Callable | None]:
         """Inject network latency using tc (traffic control)."""
         self._check_emergency_stop()
 
@@ -121,13 +118,14 @@ class K8sEngine:
             self._exec_in_pod(
                 namespace,
                 pod.metadata.name,
-                ["tc", "qdisc", "add", "dev", "eth0", "root", "netem",
-                 "delay", f"{latency_ms}ms"],
+                ["tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay", f"{latency_ms}ms"],
             )
 
         logger.info(
             "Injected %dms latency on %d pods in %s",
-            latency_ms, len(pod_names), namespace,
+            latency_ms,
+            len(pod_names),
+            namespace,
         )
 
         async def rollback():
@@ -150,9 +148,9 @@ class K8sEngine:
         namespace: str,
         label_selector: str,
         loss_percent: int = 10,
-        config: Optional[ExperimentConfig] = None,
+        config: ExperimentConfig | None = None,
         dry_run: bool = False,
-    ) -> tuple[dict[str, Any], Optional[Callable]]:
+    ) -> tuple[dict[str, Any], Callable | None]:
         """Inject network packet loss."""
         self._check_emergency_stop()
 
@@ -173,13 +171,14 @@ class K8sEngine:
             self._exec_in_pod(
                 namespace,
                 pod.metadata.name,
-                ["tc", "qdisc", "add", "dev", "eth0", "root", "netem",
-                 "loss", f"{loss_percent}%"],
+                ["tc", "qdisc", "add", "dev", "eth0", "root", "netem", "loss", f"{loss_percent}%"],
             )
 
         logger.info(
             "Injected %d%% packet loss on %d pods in %s",
-            loss_percent, len(pod_names), namespace,
+            loss_percent,
+            len(pod_names),
+            namespace,
         )
 
         async def rollback():
@@ -203,9 +202,9 @@ class K8sEngine:
         label_selector: str,
         cores: int = 1,
         duration_seconds: int = 30,
-        config: Optional[ExperimentConfig] = None,
+        config: ExperimentConfig | None = None,
         dry_run: bool = False,
-    ) -> tuple[dict[str, Any], Optional[Callable]]:
+    ) -> tuple[dict[str, Any], Callable | None]:
         """Inject CPU stress using stress-ng."""
         self._check_emergency_stop()
 
@@ -226,8 +225,7 @@ class K8sEngine:
             self._exec_in_pod(
                 namespace,
                 pod.metadata.name,
-                ["stress-ng", "--cpu", str(cores), "--timeout",
-                 f"{duration_seconds}s", "--quiet"],
+                ["stress-ng", "--cpu", str(cores), "--timeout", f"{duration_seconds}s", "--quiet"],
             )
 
         logger.info("CPU stress on %d pods in %s", len(pod_names), namespace)
@@ -235,7 +233,8 @@ class K8sEngine:
         async def rollback():
             for pod in pods.items:
                 self._exec_in_pod(
-                    namespace, pod.metadata.name,
+                    namespace,
+                    pod.metadata.name,
                     ["pkill", "-f", "stress-ng"],
                 )
             return {"killed_stress": len(pod_names)}
@@ -253,9 +252,9 @@ class K8sEngine:
         workers: int = 1,
         memory_bytes: str = "256M",
         duration_seconds: int = 30,
-        config: Optional[ExperimentConfig] = None,
+        config: ExperimentConfig | None = None,
         dry_run: bool = False,
-    ) -> tuple[dict[str, Any], Optional[Callable]]:
+    ) -> tuple[dict[str, Any], Callable | None]:
         """Inject memory stress using stress-ng."""
         self._check_emergency_stop()
 
@@ -276,8 +275,16 @@ class K8sEngine:
             self._exec_in_pod(
                 namespace,
                 pod.metadata.name,
-                ["stress-ng", "--vm", str(workers), "--vm-bytes", memory_bytes,
-                 "--timeout", f"{duration_seconds}s", "--quiet"],
+                [
+                    "stress-ng",
+                    "--vm",
+                    str(workers),
+                    "--vm-bytes",
+                    memory_bytes,
+                    "--timeout",
+                    f"{duration_seconds}s",
+                    "--quiet",
+                ],
             )
 
         logger.info("Memory stress on %d pods in %s", len(pod_names), namespace)
@@ -285,7 +292,8 @@ class K8sEngine:
         async def rollback():
             for pod in pods.items:
                 self._exec_in_pod(
-                    namespace, pod.metadata.name,
+                    namespace,
+                    pod.metadata.name,
                     ["pkill", "-f", "stress-ng"],
                 )
             return {"killed_stress": len(pod_names)}
@@ -309,16 +317,18 @@ class K8sEngine:
         deployments = apps_v1.list_namespaced_deployment(namespace)
         for dep in deployments.items:
             dep_id = f"deploy/{dep.metadata.name}"
-            nodes.append(TopologyNode(
-                id=dep_id,
-                name=dep.metadata.name,
-                resource_type=ResourceType.DEPLOYMENT,
-                namespace=namespace,
-                labels=dep.metadata.labels or {},
-                health=HealthStatus.HEALTHY
-                if dep.status.ready_replicas == dep.status.replicas
-                else HealthStatus.DEGRADED,
-            ))
+            nodes.append(
+                TopologyNode(
+                    id=dep_id,
+                    name=dep.metadata.name,
+                    resource_type=ResourceType.DEPLOYMENT,
+                    namespace=namespace,
+                    labels=dep.metadata.labels or {},
+                    health=HealthStatus.HEALTHY
+                    if dep.status.ready_replicas == dep.status.replicas
+                    else HealthStatus.DEGRADED,
+                )
+            )
 
         # Pods
         pods = v1.list_namespaced_pod(namespace)
@@ -326,41 +336,49 @@ class K8sEngine:
             pod_id = f"pod/{pod.metadata.name}"
             phase = pod.status.phase
             health = (
-                HealthStatus.HEALTHY if phase == "Running"
-                else HealthStatus.UNHEALTHY if phase == "Failed"
+                HealthStatus.HEALTHY
+                if phase == "Running"
+                else HealthStatus.UNHEALTHY
+                if phase == "Failed"
                 else HealthStatus.UNKNOWN
             )
-            nodes.append(TopologyNode(
-                id=pod_id,
-                name=pod.metadata.name,
-                resource_type=ResourceType.POD,
-                namespace=namespace,
-                labels=pod.metadata.labels or {},
-                health=health,
-            ))
+            nodes.append(
+                TopologyNode(
+                    id=pod_id,
+                    name=pod.metadata.name,
+                    resource_type=ResourceType.POD,
+                    namespace=namespace,
+                    labels=pod.metadata.labels or {},
+                    health=health,
+                )
+            )
             # Link pod to its owner deployment
-            for owner in (pod.metadata.owner_references or []):
+            for owner in pod.metadata.owner_references or []:
                 if owner.kind == "ReplicaSet":
                     for dep in deployments.items:
                         if pod.metadata.name.startswith(dep.metadata.name):
-                            edges.append(TopologyEdge(
-                                source=f"deploy/{dep.metadata.name}",
-                                target=pod_id,
-                                relation="manages",
-                            ))
+                            edges.append(
+                                TopologyEdge(
+                                    source=f"deploy/{dep.metadata.name}",
+                                    target=pod_id,
+                                    relation="manages",
+                                )
+                            )
 
         # Services
         services = v1.list_namespaced_service(namespace)
         for svc in services.items:
             svc_id = f"svc/{svc.metadata.name}"
-            nodes.append(TopologyNode(
-                id=svc_id,
-                name=svc.metadata.name,
-                resource_type=ResourceType.SERVICE,
-                namespace=namespace,
-                labels=svc.metadata.labels or {},
-                health=HealthStatus.HEALTHY,
-            ))
+            nodes.append(
+                TopologyNode(
+                    id=svc_id,
+                    name=svc.metadata.name,
+                    resource_type=ResourceType.SERVICE,
+                    namespace=namespace,
+                    labels=svc.metadata.labels or {},
+                    health=HealthStatus.HEALTHY,
+                )
+            )
 
         return InfraTopology(nodes=nodes, edges=edges)
 

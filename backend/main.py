@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import chaos, topology, analysis
+from routers import analysis, chaos, topology
 
 # Global emergency stop event
 emergency_stop_event = asyncio.Event()
