@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ type PromProbe struct {
 	comparator string
 	threshold  float64
 	timeout    time.Duration
+	client     *http.Client
 }
 
 // PromProbeConfig holds construction parameters for PromProbe
@@ -51,6 +53,7 @@ func NewPromProbe(cfg PromProbeConfig) *PromProbe {
 		comparator: cfg.Comparator,
 		threshold:  cfg.Threshold,
 		timeout:    cfg.Timeout,
+		client:     &http.Client{Timeout: cfg.Timeout},
 	}
 }
 
@@ -59,15 +62,13 @@ func (p *PromProbe) Type() string          { return "prometheus" }
 func (p *PromProbe) Mode() domain.ProbeMode { return p.mode }
 
 func (p *PromProbe) Execute(ctx context.Context) (*ProbeResult, error) {
-	client := &http.Client{Timeout: p.timeout}
-
-	url := fmt.Sprintf("%s/api/v1/query?query=%s", p.endpoint, p.query)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	queryURL := fmt.Sprintf("%s/api/v1/query?query=%s", p.endpoint, url.QueryEscape(p.query))
+	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("prometheus request: %w", err)
 	}

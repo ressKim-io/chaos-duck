@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const maxSnapshots = 1000
+
 // SnapshotManager captures and stores state snapshots before chaos injection
 type SnapshotManager struct {
 	mu        sync.RWMutex
@@ -44,6 +46,7 @@ func (sm *SnapshotManager) CaptureK8sSnapshot(
 	}
 
 	sm.mu.Lock()
+	sm.evictIfNeeded()
 	sm.snapshots[experimentID] = snapshot
 	sm.mu.Unlock()
 
@@ -68,11 +71,25 @@ func (sm *SnapshotManager) CaptureAWSSnapshot(
 	}
 
 	sm.mu.Lock()
+	sm.evictIfNeeded()
 	sm.snapshots[experimentID] = snapshot
 	sm.mu.Unlock()
 
 	sm.persistSnapshot(ctx, experimentID, snapshot)
 	return snapshot, nil
+}
+
+// evictIfNeeded removes the oldest snapshot when at capacity.
+// Must be called with sm.mu held.
+func (sm *SnapshotManager) evictIfNeeded() {
+	if len(sm.snapshots) < maxSnapshots {
+		return
+	}
+	// Evict the first key found (pseudo-random from map iteration)
+	for k := range sm.snapshots {
+		delete(sm.snapshots, k)
+		break
+	}
 }
 
 // GetSnapshot returns the stored snapshot for an experiment

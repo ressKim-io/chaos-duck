@@ -22,6 +22,7 @@ type HTTPProbe struct {
 	timeout        time.Duration
 	bodyPattern    *regexp.Regexp
 	headers        map[string]string
+	client         *http.Client
 }
 
 // HTTPProbeConfig holds construction parameters for HTTPProbe
@@ -66,6 +67,7 @@ func NewHTTPProbe(cfg HTTPProbeConfig) (*HTTPProbe, error) {
 		timeout:        cfg.Timeout,
 		bodyPattern:    pat,
 		headers:        cfg.Headers,
+		client:         &http.Client{Timeout: cfg.Timeout},
 	}, nil
 }
 
@@ -74,8 +76,6 @@ func (p *HTTPProbe) Type() string          { return "http" }
 func (p *HTTPProbe) Mode() domain.ProbeMode { return p.mode }
 
 func (p *HTTPProbe) Execute(ctx context.Context) (*ProbeResult, error) {
-	client := &http.Client{Timeout: p.timeout}
-
 	req, err := http.NewRequestWithContext(ctx, p.method, p.url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -85,7 +85,7 @@ func (p *HTTPProbe) Execute(ctx context.Context) (*ProbeResult, error) {
 	}
 
 	start := time.Now()
-	resp, err := client.Do(req)
+	resp, err := p.client.Do(req)
 	elapsed := time.Since(start)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request: %w", err)
