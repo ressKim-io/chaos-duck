@@ -14,6 +14,7 @@ env/
 .coverage
 htmlcov/
 .mypy_cache/
+.ruff_cache/
 
 # Node
 node_modules/
@@ -41,6 +42,16 @@ frontend/build/
 *.key
 credentials.json
 secrets.yaml
+
+# Logs
+*.log
+
+# Terraform
+*.tfstate
+*.tfstate.*
+
+# Claude Code
+.claude/
 
 # OS
 Thumbs.db
