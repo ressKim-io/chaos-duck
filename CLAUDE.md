@@ -29,8 +29,17 @@ cd frontend && npm run dev
 # CLI
 python cli/chaosduck.py --help
 
+# Lint & Format
+make lint          # ruff check backend/
+make format        # ruff format backend/
+
 # Tests
-cd backend && pytest -v --cov=. --cov-report=term-missing
+make test          # pytest -v --cov=backend --cov-report=term-missing
+make check         # lint + test 통합
+
+# Pre-commit hooks
+pre-commit install
+pre-commit run --all-files
 
 # Docker
 docker-compose up
