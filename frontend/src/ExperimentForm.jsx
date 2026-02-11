@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createExperiment, dryRunExperiment } from "./api";
 import { useToast } from "./ToastContext";
 import Spinner from "./Spinner";
+import ProbeConfigSection from "./ProbeConfigSection";
 
 const CHAOS_TYPES = {
   "K8s": ["pod_delete", "network_latency", "network_loss", "cpu_stress", "memory_stress"],
@@ -44,7 +45,9 @@ export default function ExperimentForm({ onCreated }) {
   const [params, setParams] = useState({});
   const [safety, setSafety] = useState(DEFAULT_SAFETY);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [probes, setProbes] = useState([]);
   const [showSafety, setShowSafety] = useState(false);
+  const [showProbes, setShowProbes] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const toast = useToast();
 
@@ -75,6 +78,9 @@ export default function ExperimentForm({ onCreated }) {
         if (f.key === "instance_ids") val = val.split(",").map((s) => s.trim());
         config.parameters[f.key] = val;
       }
+    }
+    if (probes.length > 0) {
+      config.probes = probes.filter((p) => p.name);
     }
     return config;
   };
@@ -206,6 +212,12 @@ export default function ExperimentForm({ onCreated }) {
         >
           {showSafety ? "Hide" : "Show"} Safety Settings
         </button>
+        <button
+          onClick={() => setShowProbes((v) => !v)}
+          className="text-xs text-gray-500 hover:text-gray-700"
+        >
+          {showProbes ? "Hide" : "Show"} Probes{probes.length > 0 ? ` (${probes.length})` : ""}
+        </button>
       </div>
 
       {/* Safety Settings */}
@@ -297,6 +309,13 @@ export default function ExperimentForm({ onCreated }) {
             />
             Require Confirmation
           </label>
+        </div>
+      )}
+
+      {/* Probe Configuration */}
+      {showProbes && (
+        <div className="mt-3 rounded border border-gray-100 bg-gray-50 p-3">
+          <ProbeConfigSection probes={probes} onChange={setProbes} />
         </div>
       )}
 
