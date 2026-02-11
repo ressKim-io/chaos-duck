@@ -3,6 +3,7 @@ package safety
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -88,6 +89,129 @@ func (sm *SnapshotManager) DeleteSnapshot(experimentID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	delete(sm.snapshots, experimentID)
+}
+
+// ListSnapshots returns all stored snapshots
+func (sm *SnapshotManager) ListSnapshots() map[string]map[string]any {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	result := make(map[string]map[string]any, len(sm.snapshots))
+	for k, v := range sm.snapshots {
+		result[k] = v
+	}
+	return result
+}
+
+// RestoreFromSnapshot compares the stored snapshot with current state
+// and returns a list of detected drifts. currentState should be fetched
+// by the caller from the appropriate engine (K8s/AWS).
+func (sm *SnapshotManager) RestoreFromSnapshot(
+	experimentID string,
+	currentState map[string]any,
+) (map[string]any, error) {
+	snapshot, ok := sm.GetSnapshot(experimentID)
+	if !ok {
+		return nil, fmt.Errorf("no snapshot found for experiment %s", experimentID)
+	}
+
+	restored := map[string]any{
+		"experiment_id": experimentID,
+		"actions":       []map[string]any{},
+	}
+
+	snapshotType, _ := snapshot["type"].(string)
+	switch snapshotType {
+	case "k8s":
+		actions := sm.restoreK8s(snapshot, currentState)
+		restored["actions"] = actions
+	case "aws":
+		actions := sm.restoreAws(snapshot, currentState)
+		restored["actions"] = actions
+	}
+
+	return restored, nil
+}
+
+// restoreK8s detects drift between snapshot and current K8s state.
+// Checks for missing pods that existed in the snapshot.
+func (sm *SnapshotManager) restoreK8s(snapshot, currentState map[string]any) []map[string]any {
+	actions := []map[string]any{}
+
+	resources, _ := snapshot["resources"].(map[string]any)
+	if resources == nil {
+		return actions
+	}
+
+	// Get snapshot pod names
+	snapshotPods, _ := resources["pods"].([]any)
+	snapshotPodNames := make(map[string]bool)
+	for _, p := range snapshotPods {
+		if pod, ok := p.(map[string]any); ok {
+			if name, ok := pod["name"].(string); ok {
+				snapshotPodNames[name] = true
+			}
+		}
+	}
+
+	if len(snapshotPodNames) == 0 {
+		return actions
+	}
+
+	// Get current pod names
+	currentPods, _ := currentState["pods"].([]any)
+	currentPodNames := make(map[string]bool)
+	for _, p := range currentPods {
+		if pod, ok := p.(map[string]any); ok {
+			if name, ok := pod["name"].(string); ok {
+				currentPodNames[name] = true
+			}
+		}
+	}
+
+	// Detect missing pods
+	namespace, _ := snapshot["namespace"].(string)
+	for podName := range snapshotPodNames {
+		if !currentPodNames[podName] {
+			log.Printf("Pod %s was in snapshot but is now missing in %s", podName, namespace)
+			actions = append(actions, map[string]any{
+				"action": "pod_missing",
+				"name":   podName,
+				"status": "detected",
+			})
+		}
+	}
+
+	return actions
+}
+
+// restoreAws detects drift between snapshot and current AWS state.
+// Checks for EC2 instance state changes.
+func (sm *SnapshotManager) restoreAws(snapshot, currentState map[string]any) []map[string]any {
+	actions := []map[string]any{}
+
+	state, _ := snapshot["state"].(map[string]any)
+	if state == nil {
+		return actions
+	}
+
+	resourceType, _ := snapshot["resource_type"].(string)
+	if resourceType == "ec2" {
+		snapshotState, _ := state["state"].(string)
+		instanceID, _ := state["instance_id"].(string)
+		currentInstanceState, _ := currentState["state"].(string)
+
+		if instanceID != "" && snapshotState != "" && currentInstanceState != "" && currentInstanceState != snapshotState {
+			actions = append(actions, map[string]any{
+				"action":         "state_drift",
+				"instance_id":    instanceID,
+				"snapshot_state": snapshotState,
+				"current_state":  currentInstanceState,
+			})
+		}
+	}
+
+	return actions
 }
 
 func (sm *SnapshotManager) persistSnapshot(ctx context.Context, experimentID string, snapshot map[string]any) {
