@@ -231,3 +231,30 @@ class TestAiEngine:
         engine = self._make_engine(mock_anthropic)
         report = await engine.generate_report({"name": "test"})
         assert "Report" in report
+
+    async def test_generate_experiments(self, mock_anthropic):
+        mock_anthropic.messages.create.return_value.content = [
+            MagicMock(
+                text='[{"name": "kill-nginx", "chaos_type": "pod_delete",'
+                '"target_namespace": "default", "target_labels": {"app": "nginx"},'
+                '"parameters": {}, "description": "Test nginx pod recovery"}]'
+            )
+        ]
+        engine = self._make_engine(mock_anthropic)
+        results = await engine.generate_experiments({"nodes": []}, "default", 1)
+        assert len(results) == 1
+        assert results[0]["name"] == "kill-nginx"
+        assert results[0]["chaos_type"] == "pod_delete"
+
+    async def test_generate_experiments_filters_invalid(self, mock_anthropic):
+        mock_anthropic.messages.create.return_value.content = [
+            MagicMock(
+                text='[{"name": "valid", "chaos_type": "pod_delete"},'
+                '{"name": "invalid", "chaos_type": "nonexistent_type"}]'
+            )
+        ]
+        engine = self._make_engine(mock_anthropic)
+        results = await engine.generate_experiments({"nodes": []}, "default", 2)
+        # Only the valid one should pass Pydantic validation
+        assert len(results) == 1
+        assert results[0]["name"] == "valid"

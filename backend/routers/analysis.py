@@ -88,3 +88,14 @@ async def generate_report(request: dict):
     analysis = request.get("analysis")
     report = await ai_engine.generate_report(experiment_data, analysis)
     return {"report": report}
+
+
+@router.post("/generate-experiments")
+async def generate_experiments(request: dict):
+    """Generate experiment configs from topology using AI."""
+    topology = request.get("topology", {})
+    target_namespace = request.get("target_namespace", "default")
+    count = request.get("count", 3)
+
+    experiments = await ai_engine.generate_experiments(topology, target_namespace, count)
+    return {"experiments": experiments, "count": len(experiments)}

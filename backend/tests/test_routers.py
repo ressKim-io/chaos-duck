@@ -183,3 +183,26 @@ class TestAnalysisRouter:
             )
         assert resp.status_code == 200
         assert resp.json()["report"] == "# Report"
+
+    async def test_generate_experiments(self, client):
+        with patch("routers.analysis.ai_engine") as mock_engine:
+            mock_engine.generate_experiments = AsyncMock(
+                return_value=[
+                    {
+                        "name": "kill-nginx",
+                        "chaos_type": "pod_delete",
+                        "target_namespace": "default",
+                        "target_labels": {"app": "nginx"},
+                        "parameters": {},
+                        "description": "Test pod recovery",
+                    }
+                ]
+            )
+            resp = await client.post(
+                "/api/analysis/generate-experiments",
+                json={"topology": {"nodes": []}, "target_namespace": "default", "count": 1},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] == 1
+        assert data["experiments"][0]["name"] == "kill-nginx"

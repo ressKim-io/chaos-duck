@@ -1,7 +1,8 @@
+import json
 import logging
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,19 @@ class AiEngine:
             self._client = anthropic.Anthropic(api_key=self._api_key)
         return self._client
 
+    def _extract_json(self, text: str) -> Any:
+        """Extract JSON object or array from AI response text."""
+        arr_start = text.find("[")
+        arr_end = text.rfind("]") + 1
+        obj_start = text.find("{")
+        obj_end = text.rfind("}") + 1
+
+        if arr_start >= 0 and (obj_start < 0 or arr_start < obj_start):
+            return json.loads(text[arr_start:arr_end])
+        if obj_start >= 0:
+            return json.loads(text[obj_start:obj_end])
+        raise ValueError("No JSON found in AI response")
+
     async def analyze_experiment(
         self,
         experiment_data: dict[str, Any],
@@ -67,15 +81,59 @@ Respond in JSON with these fields:
             messages=[{"role": "user", "content": prompt}],
         )
 
-        import json
-
-        text = message.content[0].text
-        # Extract JSON from response
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        data = json.loads(text[start:end])
-
+        data = self._extract_json(message.content[0].text)
         return AnalysisResult(**data)
+
+    async def generate_experiments(
+        self,
+        topology: dict[str, Any],
+        target_namespace: str = "default",
+        count: int = 3,
+    ) -> list[dict]:
+        """Generate experiment configs from topology analysis."""
+        from models.experiment import ExperimentConfig
+
+        client = self._get_client()
+
+        prompt = f"""Analyze this Kubernetes topology and suggest {count} chaos experiments
+to test resilience weaknesses.
+
+Topology: {topology}
+Target Namespace: {target_namespace}
+
+Respond with a JSON array of experiment configs. Each must have:
+- name: descriptive experiment name (string)
+- chaos_type: one of [pod_delete, network_latency, network_loss, cpu_stress, memory_stress]
+- target_namespace: "{target_namespace}"
+- target_labels: dict of label key-value pairs
+- parameters: dict of chaos parameters
+- description: why this experiment is recommended
+
+Example:
+[{{"name": "test-nginx-resilience", "chaos_type": "pod_delete",
+  "target_namespace": "{target_namespace}", "target_labels": {{"app": "nginx"}},
+  "parameters": {{}}, "description": "Test pod recovery"}}]"""
+
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw = self._extract_json(message.content[0].text)
+        if not isinstance(raw, list):
+            raw = [raw]
+
+        # Validate each config through Pydantic, filter invalid ones
+        valid = []
+        for item in raw:
+            try:
+                config = ExperimentConfig(**item)
+                valid.append(config.model_dump())
+            except (ValidationError, Exception) as e:
+                logger.warning("Filtered invalid AI experiment config: %s", e)
+
+        return valid
 
     async def generate_hypothesis(
         self,
@@ -126,12 +184,7 @@ Respond in JSON with:
             messages=[{"role": "user", "content": prompt}],
         )
 
-        import json
-
-        text = message.content[0].text
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        return json.loads(text[start:end])
+        return self._extract_json(message.content[0].text)
 
     async def generate_report(
         self,
