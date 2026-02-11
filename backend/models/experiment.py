@@ -34,12 +34,35 @@ class ChaosType(str, Enum):
     ROUTE_BLACKHOLE = "route_blackhole"
 
 
+class ProbeType(str, Enum):
+    HTTP = "http"
+    CMD = "cmd"
+    K8S = "k8s"
+    PROMETHEUS = "prometheus"
+
+
+class ProbeMode(str, Enum):
+    SOT = "sot"
+    EOT = "eot"
+    CONTINUOUS = "continuous"
+    ON_CHAOS = "on_chaos"
+
+
+class ProbeConfig(BaseModel):
+    name: str
+    type: ProbeType
+    mode: ProbeMode
+    properties: dict = Field(default_factory=dict)
+
+
 class SafetyConfig(BaseModel):
     timeout_seconds: int = Field(default=30, ge=1, le=120)
     require_confirmation: bool = Field(default=False)
     max_blast_radius: float = Field(default=0.3, ge=0.0, le=1.0)
     dry_run: bool = Field(default=False)
     namespace_pattern: str | None = Field(default=None)
+    health_check_interval: int = Field(default=10, ge=1, le=60)
+    health_check_failure_threshold: int = Field(default=3, ge=1, le=10)
 
 
 class ExperimentConfig(BaseModel):
@@ -50,6 +73,7 @@ class ExperimentConfig(BaseModel):
     target_resource: str | None = None
     parameters: dict = Field(default_factory=dict)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
+    probes: list[ProbeConfig] = Field(default_factory=list)
     description: str | None = None
 
 

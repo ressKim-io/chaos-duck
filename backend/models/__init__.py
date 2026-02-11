@@ -4,6 +4,9 @@ from .experiment import (
     ExperimentPhase,
     ExperimentResult,
     ExperimentStatus,
+    ProbeConfig,
+    ProbeMode,
+    ProbeType,
     SafetyConfig,
 )
 from .topology import (
@@ -22,6 +25,9 @@ __all__ = [
     "ExperimentConfig",
     "SafetyConfig",
     "ExperimentResult",
+    "ProbeType",
+    "ProbeMode",
+    "ProbeConfig",
     "ResourceType",
     "HealthStatus",
     "TopologyNode",
