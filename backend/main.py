@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from database import close_db, init_db
 from routers import analysis, chaos, topology
 
 # Global emergency stop event
@@ -14,9 +15,11 @@ emergency_stop_event = asyncio.Event()
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown."""
     emergency_stop_event.clear()
+    await init_db()
     yield
     # Trigger emergency stop on shutdown to rollback active experiments
     emergency_stop_event.set()
+    await close_db()
 
 
 app = FastAPI(

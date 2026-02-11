@@ -1,26 +1,64 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from database import get_session
+from db_models import AnalysisResultRecord, ExperimentRecord
 from engines.ai_engine import AiEngine
+from models.experiment import ExperimentConfig, ExperimentResult
 
 router = APIRouter()
 ai_engine = AiEngine()
 
 
-@router.post("/experiment/{experiment_id}")
-async def analyze_experiment(experiment_id: str):
-    """Analyze a completed experiment using AI."""
-    # Import here to avoid circular dependency
-    from routers.chaos import experiments
+def _record_to_result(rec: ExperimentRecord) -> ExperimentResult:
+    """Convert a DB record to an ExperimentResult Pydantic model."""
+    from models.experiment import ExperimentPhase, ExperimentStatus
 
-    if experiment_id not in experiments:
+    return ExperimentResult(
+        experiment_id=rec.id,
+        config=ExperimentConfig(**rec.config),
+        status=ExperimentStatus(rec.status),
+        phase=ExperimentPhase(rec.phase),
+        started_at=rec.started_at,
+        completed_at=rec.completed_at,
+        steady_state=rec.steady_state,
+        hypothesis=rec.hypothesis,
+        injection_result=rec.injection_result,
+        observations=rec.observations,
+        rollback_result=rec.rollback_result,
+        error=rec.error,
+    )
+
+
+@router.post("/experiment/{experiment_id}")
+async def analyze_experiment(
+    experiment_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Analyze a completed experiment using AI."""
+    rec = await session.get(ExperimentRecord, experiment_id)
+    if not rec:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
-    exp = experiments[experiment_id]
+    exp = _record_to_result(rec)
     result = await ai_engine.analyze_experiment(
         experiment_data=exp.model_dump(),
         steady_state=exp.steady_state or {},
         observations=exp.observations or {},
     )
+
+    # Persist analysis result
+    analysis_rec = AnalysisResultRecord(
+        experiment_id=experiment_id,
+        severity=result.severity,
+        root_cause=result.root_cause,
+        confidence=result.confidence,
+        recommendations=result.recommendations,
+        resilience_score=result.resilience_score,
+    )
+    session.add(analysis_rec)
+    await session.commit()
+
     return result.model_dump()
 
 

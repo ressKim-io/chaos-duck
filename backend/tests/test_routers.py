@@ -3,10 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 class TestChaosRouter:
     async def test_list_experiments_empty(self, client):
-        # Clear experiments store
-        from routers.chaos import experiments
-
-        experiments.clear()
         resp = await client.get("/api/chaos/experiments")
         assert resp.status_code == 200
         assert resp.json() == []
@@ -108,6 +104,33 @@ class TestChaosRouter:
         data = resp.json()
         assert data["status"] == "completed"
         assert data["injection_result"]["action"] == "pod_delete"
+
+    async def test_list_experiments_after_create(self, client):
+        """Verify experiments are persisted in DB."""
+        with (
+            patch("routers.chaos.k8s_engine") as mock_k8s,
+            patch("safety.guardrails.snapshot_manager") as mock_snap,
+        ):
+            mock_k8s.get_steady_state = AsyncMock(return_value={"pods_total": 1})
+            mock_k8s.pod_delete = AsyncMock(
+                return_value=({"action": "pod_delete", "pods": []}, None)
+            )
+            mock_snap.capture_k8s_snapshot = AsyncMock()
+
+            await client.post(
+                "/api/chaos/experiments",
+                json={
+                    "name": "persist-test",
+                    "chaos_type": "pod_delete",
+                    "target_namespace": "default",
+                },
+            )
+
+        resp = await client.get("/api/chaos/experiments")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) >= 1
+        assert any(e["config"]["name"] == "persist-test" for e in data)
 
 
 class TestTopologyRouter:

@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from models.experiment import ChaosType, ExperimentConfig, SafetyConfig
 from safety.guardrails import emergency_stop_manager
@@ -147,8 +148,35 @@ def mock_anthropic():
 
 
 @pytest.fixture()
-async def client():
-    """Async HTTP test client for FastAPI app."""
+async def _setup_test_db():
+    """Create test database tables using in-memory SQLite."""
+    import database
+    from db_models import Base
+
+    test_engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    test_session_factory = async_sessionmaker(
+        test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # Monkey-patch the database module for tests
+    original_engine = database.engine
+    original_session = database.async_session
+    database.engine = test_engine
+    database.async_session = test_session_factory
+
+    yield test_session_factory
+
+    database.engine = original_engine
+    database.async_session = original_session
+    await test_engine.dispose()
+
+
+@pytest.fixture()
+async def client(_setup_test_db):
+    """Async HTTP test client for FastAPI app with test DB."""
     from main import app
 
     transport = ASGITransport(app=app)
