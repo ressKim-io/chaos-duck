@@ -97,16 +97,23 @@ func (hc *HealthCheckLoop) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			allPassed := hc.checkProbes(ctx)
+
+			hc.mu.Lock()
 			if allPassed {
 				hc.consecutiveFailures = 0
+				hc.mu.Unlock()
 				continue
 			}
 
 			hc.consecutiveFailures++
-			log.Printf("Health check failed for %s (%d/%d)",
-				hc.experimentID, hc.consecutiveFailures, hc.failureThreshold)
+			failures := hc.consecutiveFailures
+			threshold := hc.failureThreshold
+			hc.mu.Unlock()
 
-			if hc.consecutiveFailures >= hc.failureThreshold {
+			log.Printf("Health check failed for %s (%d/%d)",
+				hc.experimentID, failures, threshold)
+
+			if failures >= threshold {
 				log.Printf("Health check threshold reached for %s. Triggering rollback.",
 					hc.experimentID)
 
