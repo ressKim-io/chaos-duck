@@ -3,6 +3,8 @@ from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
+from observability.metrics import METRICS
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,6 +48,7 @@ class RollbackManager:
                         "result": result,
                     }
                 )
+                METRICS.record_rollback("success")
                 logger.info("Rollback success: %s", description)
             except Exception as e:
                 results.append(
@@ -55,6 +58,7 @@ class RollbackManager:
                         "error": str(e),
                     }
                 )
+                METRICS.record_rollback("failed")
                 logger.error("Rollback failed: %s - %s", description, e)
         return results
 

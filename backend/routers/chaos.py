@@ -15,6 +15,7 @@ from models.experiment import (
     ExperimentResult,
     ExperimentStatus,
 )
+from observability.metrics import METRICS
 from safety.guardrails import ExperimentContext, emergency_stop_manager
 from safety.rollback import rollback_manager
 
@@ -63,6 +64,7 @@ async def create_experiment(
     )
     session.add(rec)
     await session.commit()
+    METRICS.record_experiment_start()
 
     async with ExperimentContext(experiment_id, config):
         try:
@@ -87,10 +89,14 @@ async def create_experiment(
             rec.status = ExperimentStatus.COMPLETED.value
             rec.phase = ExperimentPhase.ROLLBACK.value
             rec.completed_at = datetime.now(UTC)
+            duration = (rec.completed_at - now).total_seconds()
+            METRICS.record_experiment_end(config.chaos_type.value, "completed", duration)
 
         except Exception as e:
             rec.status = ExperimentStatus.FAILED.value
             rec.error = str(e)
+            duration = (datetime.now(UTC) - now).total_seconds()
+            METRICS.record_experiment_end(config.chaos_type.value, "failed", duration)
             await session.commit()
             raise
 

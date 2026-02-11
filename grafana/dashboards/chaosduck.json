@@ -1,0 +1,102 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Active Experiments",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "chaosduck_active_experiments", "legendFormat": "Active" }
+      ]
+    },
+    {
+      "title": "Total Experiments",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(chaosduck_experiments_total)", "legendFormat": "Total" }
+      ]
+    },
+    {
+      "title": "Rollbacks",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(chaosduck_rollback_total)", "legendFormat": "Rollbacks" }
+      ]
+    },
+    {
+      "title": "Probe Pass Rate",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(chaosduck_probe_results{passed=\"True\"}) / sum(chaosduck_probe_results) * 100",
+          "legendFormat": "Pass %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "min": 0, "max": 100, "unit": "percent" }
+      }
+    },
+    {
+      "title": "Experiments by Type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum by (chaos_type) (rate(chaosduck_experiments_total[5m]))",
+          "legendFormat": "{{chaos_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Experiment Duration",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(chaosduck_experiment_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(chaosduck_experiment_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50"
+        }
+      ]
+    },
+    {
+      "title": "HTTP Request Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum by (method, path) (rate(chaosduck_http_requests_total[5m]))",
+          "legendFormat": "{{method}} {{path}}"
+        }
+      ]
+    },
+    {
+      "title": "HTTP Latency (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, path) (rate(chaosduck_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["chaosduck", "chaos-engineering"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "ChaosDuck",
+  "uid": "chaosduck-main"
+}

@@ -3,8 +3,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
+from prometheus_client import generate_latest
 
 from database import close_db, init_db
+from observability.middleware import PrometheusMiddleware
 from routers import analysis, chaos, topology
 
 # Global emergency stop event
@@ -29,6 +32,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(PrometheusMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -48,6 +52,12 @@ async def health_check():
         "status": "healthy",
         "emergency_stop": emergency_stop_event.is_set(),
     }
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return PlainTextResponse(generate_latest(), media_type="text/plain; version=0.0.4")
 
 
 @app.post("/emergency-stop")
