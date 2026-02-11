@@ -58,9 +58,7 @@ func (p *CmdProbe) Execute(ctx context.Context) (*ProbeResult, error) {
 
 	exitCode := 0
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() != nil {
+		if ctx.Err() != nil {
 			errStr := fmt.Sprintf("Command timed out after %v", p.timeout)
 			return &ProbeResult{
 				ProbeName:  p.name,
@@ -70,6 +68,9 @@ func (p *CmdProbe) Execute(ctx context.Context) (*ProbeResult, error) {
 				Error:      &errStr,
 				ExecutedAt: time.Now().UTC(),
 			}, nil
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
 		}
 	}
 
