@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from safety.rollback import rollback_manager
 
@@ -20,7 +20,7 @@ class HealthCheckLoop:
         probes: list,
         interval: int = 10,
         failure_threshold: int = 3,
-        on_failure: Optional[Callable] = None,
+        on_failure: Callable | None = None,
     ):
         self.experiment_id = experiment_id
         self.probes = probes
@@ -28,7 +28,7 @@ class HealthCheckLoop:
         self.failure_threshold = failure_threshold
         self.on_failure = on_failure
         self._consecutive_failures = 0
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._stopped = asyncio.Event()
         self._results: list = []
 
