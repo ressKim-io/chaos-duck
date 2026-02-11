@@ -258,3 +258,41 @@ class TestAiEngine:
         # Only the valid one should pass Pydantic validation
         assert len(results) == 1
         assert results[0]["name"] == "valid"
+
+    async def test_review_steady_state(self, mock_anthropic):
+        mock_anthropic.messages.create.return_value.content = [
+            MagicMock(
+                text='{"healthy": true, "anomalies": [], "risk_level": "low",'
+                '"recommendation": "Safe to proceed"}'
+            )
+        ]
+        engine = self._make_engine(mock_anthropic)
+        result = await engine.review_steady_state({"pods_total": 3, "pods_running": 3})
+        assert result["healthy"] is True
+        assert result["risk_level"] == "low"
+
+    async def test_compare_observations(self, mock_anthropic):
+        mock_anthropic.messages.create.return_value.content = [
+            MagicMock(
+                text='{"hypothesis_validated": true, "impact_summary": "1 pod lost",'
+                '"severity": "medium", "details": ["pod count decreased"]}'
+            )
+        ]
+        engine = self._make_engine(mock_anthropic)
+        result = await engine.compare_observations(
+            {"pods_total": 3}, {"pods_total": 2}, "Pod count will decrease"
+        )
+        assert result["hypothesis_validated"] is True
+        assert result["severity"] == "medium"
+
+    async def test_verify_recovery(self, mock_anthropic):
+        mock_anthropic.messages.create.return_value.content = [
+            MagicMock(
+                text='{"fully_recovered": true, "recovery_percentage": 100,'
+                '"remaining_issues": [], "recommendation": "No action needed"}'
+            )
+        ]
+        engine = self._make_engine(mock_anthropic)
+        result = await engine.verify_recovery({"pods_total": 3}, {"pods_total": 3})
+        assert result["fully_recovered"] is True
+        assert result["recovery_percentage"] == 100

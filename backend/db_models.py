@@ -30,6 +30,7 @@ class ExperimentRecord(Base):
     observations: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     rollback_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_insights: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class SnapshotRecord(Base):

@@ -27,6 +27,7 @@ def _record_to_result(rec: ExperimentRecord) -> ExperimentResult:
         observations=rec.observations,
         rollback_result=rec.rollback_result,
         error=rec.error,
+        ai_insights=rec.ai_insights,
     )
 
 

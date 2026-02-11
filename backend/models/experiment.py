@@ -75,6 +75,7 @@ class ExperimentConfig(BaseModel):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     probes: list[ProbeConfig] = Field(default_factory=list)
     description: str | None = None
+    ai_enabled: bool = Field(default=False)
 
 
 class ExperimentResult(BaseModel):
@@ -90,3 +91,4 @@ class ExperimentResult(BaseModel):
     observations: dict | None = None
     rollback_result: dict | None = None
     error: str | None = None
+    ai_insights: dict | None = None

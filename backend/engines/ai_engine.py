@@ -212,3 +212,85 @@ Format as a brief markdown report with:
         )
 
         return message.content[0].text
+
+    async def review_steady_state(
+        self,
+        steady_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Review steady state for anomalies before chaos injection."""
+        client = self._get_client()
+
+        prompt = f"""Review this Kubernetes steady state snapshot and identify any pre-existing
+anomalies or risks before chaos injection.
+
+Steady State: {steady_state}
+
+Respond in JSON with:
+- healthy: boolean indicating if the state looks healthy
+- anomalies: list of detected issues
+- risk_level: low/medium/high
+- recommendation: brief advice"""
+
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        return self._extract_json(message.content[0].text)
+
+    async def compare_observations(
+        self,
+        steady_state: dict[str, Any],
+        observations: dict[str, Any],
+        hypothesis: str | None = None,
+    ) -> dict[str, Any]:
+        """Compare observations against steady state after chaos injection."""
+        client = self._get_client()
+
+        prompt = f"""Compare the post-chaos observations with the original steady state.
+
+Steady State (before): {steady_state}
+Observations (after): {observations}
+Hypothesis: {hypothesis or 'N/A'}
+
+Respond in JSON with:
+- hypothesis_validated: boolean
+- impact_summary: brief description of changes
+- severity: low/medium/high/critical
+- details: list of specific changes detected"""
+
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        return self._extract_json(message.content[0].text)
+
+    async def verify_recovery(
+        self,
+        original_state: dict[str, Any],
+        current_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Verify recovery completeness after rollback."""
+        client = self._get_client()
+
+        prompt = f"""Verify that the system has fully recovered after chaos rollback.
+
+Original State (before chaos): {original_state}
+Current State (after rollback): {current_state}
+
+Respond in JSON with:
+- fully_recovered: boolean
+- recovery_percentage: 0-100
+- remaining_issues: list of unresolved differences
+- recommendation: next steps if not fully recovered"""
+
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        return self._extract_json(message.content[0].text)

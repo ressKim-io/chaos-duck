@@ -105,6 +105,90 @@ class TestChaosRouter:
         assert data["status"] == "completed"
         assert data["injection_result"]["action"] == "pod_delete"
 
+    async def test_create_experiment_with_ai_enabled(self, client):
+        """Test experiment with ai_enabled=true includes AI insights."""
+        with (
+            patch("routers.chaos.k8s_engine") as mock_k8s,
+            patch("routers.chaos.ai_engine") as mock_ai,
+            patch("safety.guardrails.snapshot_manager") as mock_snap,
+        ):
+            mock_k8s.get_steady_state = AsyncMock(
+                return_value={
+                    "namespace": "default",
+                    "pods_total": 3,
+                    "pods_running": 3,
+                    "pods_healthy_ratio": 1.0,
+                }
+            )
+            mock_k8s.pod_delete = AsyncMock(
+                return_value=({"action": "pod_delete", "pods": ["p1"]}, None)
+            )
+            mock_snap.capture_k8s_snapshot = AsyncMock()
+            mock_ai.review_steady_state = AsyncMock(
+                return_value={"healthy": True, "risk_level": "low"}
+            )
+            mock_ai.generate_hypothesis = AsyncMock(return_value="Pods will recover")
+            mock_ai.compare_observations = AsyncMock(
+                return_value={"hypothesis_validated": True}
+            )
+            mock_ai.verify_recovery = AsyncMock(
+                return_value={"fully_recovered": True, "recovery_percentage": 100}
+            )
+
+            resp = await client.post(
+                "/api/chaos/experiments",
+                json={
+                    "name": "ai-test",
+                    "chaos_type": "pod_delete",
+                    "target_namespace": "default",
+                    "target_labels": {"app": "test"},
+                    "ai_enabled": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed"
+        assert data["ai_insights"] is not None
+        assert data["ai_insights"]["steady_state_review"]["healthy"] is True
+        assert data["hypothesis"] == "Pods will recover"
+
+    async def test_create_experiment_ai_failure_still_completes(self, client):
+        """Test that AI failure does not block experiment completion."""
+        with (
+            patch("routers.chaos.k8s_engine") as mock_k8s,
+            patch("routers.chaos.ai_engine") as mock_ai,
+            patch("safety.guardrails.snapshot_manager") as mock_snap,
+        ):
+            mock_k8s.get_steady_state = AsyncMock(
+                return_value={"namespace": "default", "pods_total": 2}
+            )
+            mock_k8s.pod_delete = AsyncMock(
+                return_value=({"action": "pod_delete", "pods": []}, None)
+            )
+            mock_snap.capture_k8s_snapshot = AsyncMock()
+            # All AI calls fail
+            mock_ai.review_steady_state = AsyncMock(side_effect=RuntimeError("AI down"))
+            mock_ai.generate_hypothesis = AsyncMock(side_effect=RuntimeError("AI down"))
+            mock_ai.compare_observations = AsyncMock(side_effect=RuntimeError("AI down"))
+            mock_ai.verify_recovery = AsyncMock(side_effect=RuntimeError("AI down"))
+
+            resp = await client.post(
+                "/api/chaos/experiments",
+                json={
+                    "name": "ai-fail-test",
+                    "chaos_type": "pod_delete",
+                    "target_namespace": "default",
+                    "ai_enabled": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed"
+        # AI insights should be None since all calls failed
+        assert data["ai_insights"] is None
+
     async def test_list_experiments_after_create(self, client):
         """Verify experiments are persisted in DB."""
         with (

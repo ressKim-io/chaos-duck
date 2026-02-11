@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_session
 from db_models import ExperimentRecord
+from engines.ai_engine import AiEngine
 from engines.aws_engine import AwsEngine
 from engines.k8s_engine import K8sEngine
 from models.experiment import (
@@ -19,10 +21,13 @@ from observability.metrics import METRICS
 from safety.guardrails import ExperimentContext, emergency_stop_manager
 from safety.rollback import rollback_manager
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 k8s_engine = K8sEngine()
 aws_engine = AwsEngine()
+ai_engine = AiEngine()
 
 
 def _record_to_result(rec: ExperimentRecord) -> ExperimentResult:
@@ -40,6 +45,7 @@ def _record_to_result(rec: ExperimentRecord) -> ExperimentResult:
         observations=rec.observations,
         rollback_result=rec.rollback_result,
         error=rec.error,
+        ai_insights=rec.ai_insights,
     )
 
 
@@ -66,13 +72,34 @@ async def create_experiment(
     await session.commit()
     METRICS.record_experiment_start()
 
+    ai_insights: dict = {}
+
     async with ExperimentContext(experiment_id, config):
         try:
             # Phase 1: Steady State
             if config.target_namespace:
                 rec.steady_state = await k8s_engine.get_steady_state(config.target_namespace)
 
-            # Phase 2: Inject
+            if config.ai_enabled and rec.steady_state:
+                try:
+                    ai_insights["steady_state_review"] = await ai_engine.review_steady_state(
+                        rec.steady_state
+                    )
+                except Exception as e:
+                    logger.warning("AI steady state review failed: %s", e)
+
+            # Phase 2: Hypothesis
+            if config.ai_enabled:
+                try:
+                    rec.hypothesis = await ai_engine.generate_hypothesis(
+                        rec.steady_state or {},
+                        config.name,
+                        config.chaos_type.value,
+                    )
+                except Exception as e:
+                    logger.warning("AI hypothesis generation failed: %s", e)
+
+            # Phase 3: Inject
             rec.phase = ExperimentPhase.INJECT.value
             chaos_fn = _get_chaos_function(config)
             injection_result, rollback_fn = await chaos_fn(config)
@@ -81,16 +108,34 @@ async def create_experiment(
             if rollback_fn:
                 rollback_manager.push(experiment_id, rollback_fn, f"{config.chaos_type.value}")
 
-            # Phase 3: Observe
+            # Phase 4: Observe
             rec.phase = ExperimentPhase.OBSERVE.value
             if config.target_namespace:
                 rec.observations = await k8s_engine.get_steady_state(config.target_namespace)
 
+            if config.ai_enabled and rec.observations:
+                try:
+                    ai_insights["observation_analysis"] = await ai_engine.compare_observations(
+                        rec.steady_state or {}, rec.observations, rec.hypothesis
+                    )
+                except Exception as e:
+                    logger.warning("AI observation analysis failed: %s", e)
+
+            # Phase 5: Rollback
             rec.status = ExperimentStatus.COMPLETED.value
             rec.phase = ExperimentPhase.ROLLBACK.value
             rec.completed_at = datetime.now(UTC)
             duration = (rec.completed_at - now).total_seconds()
             METRICS.record_experiment_end(config.chaos_type.value, "completed", duration)
+
+            if config.ai_enabled and rec.steady_state and config.target_namespace:
+                try:
+                    post_state = await k8s_engine.get_steady_state(config.target_namespace)
+                    ai_insights["recovery_verification"] = await ai_engine.verify_recovery(
+                        rec.steady_state, post_state
+                    )
+                except Exception as e:
+                    logger.warning("AI recovery verification failed: %s", e)
 
         except Exception as e:
             rec.status = ExperimentStatus.FAILED.value
@@ -100,6 +145,7 @@ async def create_experiment(
             await session.commit()
             raise
 
+    rec.ai_insights = ai_insights or None
     await session.commit()
     return _record_to_result(rec)
 
