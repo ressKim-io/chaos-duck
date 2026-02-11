@@ -7,6 +7,7 @@ import {
 } from "./api";
 import { useApi } from "./hooks";
 import StatusBadge from "./StatusBadge";
+import TopologyGraph from "./TopologyGraph";
 
 const RESOURCE_ICONS = {
   pod: "P",
@@ -57,9 +58,51 @@ function ResourceCard({ node }) {
   );
 }
 
+function NodeDetailPanel({ node, onClose }) {
+  if (!node) return null;
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-700">{node.name}</h3>
+        <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600">Close</button>
+      </div>
+      <div className="space-y-2 text-sm">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Type:</span>
+          <span>{node.resource_type}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Health:</span>
+          <StatusBadge value={node.health} />
+        </div>
+        {node.namespace && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Namespace:</span>
+            <span>{node.namespace}</span>
+          </div>
+        )}
+        {node.labels && Object.keys(node.labels).length > 0 && (
+          <div>
+            <span className="text-xs text-gray-500">Labels:</span>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {Object.entries(node.labels).map(([k, v]) => (
+                <span key={k} className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
+                  {k}={v}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function TopologyView() {
   const [namespace, setNamespace] = useState("default");
   const [source, setSource] = useState("combined");
+  const [viewMode, setViewMode] = useState("cards");
+  const [selectedNode, setSelectedNode] = useState(null);
 
   const fetchFn =
     source === "k8s"
@@ -114,6 +157,25 @@ export default function TopologyView() {
             <option value="aws">AWS Only</option>
           </select>
         </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">
+            View
+          </label>
+          <div className="flex rounded border border-gray-300">
+            <button
+              onClick={() => setViewMode("cards")}
+              className={`px-3 py-1.5 text-sm ${viewMode === "cards" ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
+            >
+              Cards
+            </button>
+            <button
+              onClick={() => setViewMode("graph")}
+              className={`px-3 py-1.5 text-sm ${viewMode === "graph" ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
+            >
+              Graph
+            </button>
+          </div>
+        </div>
         <button
           onClick={reload}
           className="mt-5 rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -125,19 +187,38 @@ export default function TopologyView() {
       {loading && <p className="text-sm text-gray-400">Loading topology...</p>}
       {error && <p className="text-sm text-red-500">Error: {error}</p>}
 
-      {/* Resource Cards by Type */}
-      {Object.entries(grouped).map(([type, resources]) => (
-        <div key={type} className="mb-6">
-          <h3 className="mb-2 text-sm font-semibold capitalize text-gray-700">
-            {type}s ({resources.length})
-          </h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {resources.map((node) => (
-              <ResourceCard key={node.id} node={node} />
-            ))}
-          </div>
+      {/* Graph View */}
+      {viewMode === "graph" && !loading && (
+        <div className="mb-6">
+          <TopologyGraph
+            topology={topology}
+            onNodeClick={(node) => setSelectedNode(node)}
+          />
+          {selectedNode && (
+            <div className="mt-3">
+              <NodeDetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
+            </div>
+          )}
         </div>
-      ))}
+      )}
+
+      {/* Cards View */}
+      {viewMode === "cards" && (
+        <>
+          {Object.entries(grouped).map(([type, resources]) => (
+            <div key={type} className="mb-6">
+              <h3 className="mb-2 text-sm font-semibold capitalize text-gray-700">
+                {type}s ({resources.length})
+              </h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {resources.map((node) => (
+                  <ResourceCard key={node.id} node={node} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
 
       {!loading && nodes.length === 0 && !error && (
         <p className="text-sm text-gray-400">
