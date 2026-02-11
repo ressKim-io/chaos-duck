@@ -12,6 +12,7 @@ import (
 
 	"github.com/chaosduck/backend-go/internal/db"
 	"github.com/chaosduck/backend-go/internal/domain"
+	"github.com/chaosduck/backend-go/internal/probe"
 	"github.com/chaosduck/backend-go/internal/safety"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -51,11 +52,22 @@ func NewRunner(
 	}
 }
 
-// Run executes the full 5-phase experiment lifecycle
+// Run executes the full 5-phase experiment lifecycle with timeout enforcement
 func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.ExperimentConfig) (*domain.ExperimentResult, error) {
 	if err := r.esm.CheckEmergencyStop(); err != nil {
 		return nil, err
 	}
+
+	// Enforce timeout on the entire experiment lifecycle
+	timeoutSec := cfg.Safety.TimeoutSeconds
+	if timeoutSec < 1 {
+		timeoutSec = 30
+	}
+	if timeoutSec > 120 {
+		timeoutSec = 120
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
 
 	now := time.Now().UTC()
 	result := &domain.ExperimentResult{
@@ -74,6 +86,10 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 		}
 	}()
 
+	// Build probes from config
+	probes := r.buildProbes(cfg)
+	var probeResults []map[string]any
+
 	// Phase 1: Steady State
 	if cfg.TargetNamespace != nil && r.k8s != nil {
 		steadyState, err := r.k8s.GetSteadyState(ctx, *cfg.TargetNamespace)
@@ -82,6 +98,24 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 		} else {
 			result.SteadyState = steadyState
 			r.snapshotMgr.CaptureK8sSnapshot(ctx, experimentID, *cfg.TargetNamespace, steadyState)
+		}
+	}
+
+	// Execute SOT (Start of Test) probes
+	for _, p := range probes {
+		if p.Mode() == domain.ProbeModeSOT {
+			pr := probe.SafeExecute(ctx, p)
+			probeResults = append(probeResults, map[string]any{
+				"probe": pr.ProbeName, "type": pr.ProbeType, "passed": pr.Passed,
+			})
+			if !pr.Passed {
+				log.Printf("SOT probe %s failed, aborting experiment", pr.ProbeName)
+				result.Status = domain.StatusFailed
+				errStr := fmt.Sprintf("SOT probe %s failed", pr.ProbeName)
+				result.Error = &errStr
+				r.persistResult(ctx, experimentID, result)
+				return result, fmt.Errorf("%s", errStr)
+			}
 		}
 	}
 
@@ -140,6 +174,16 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 		r.rollbackMgr.Push(experimentID, chaosResult.RollbackFn, string(cfg.ChaosType))
 	}
 
+	// Execute ON_CHAOS probes
+	for _, p := range probes {
+		if p.Mode() == domain.ProbeModeOnChaos {
+			pr := probe.SafeExecute(ctx, p)
+			probeResults = append(probeResults, map[string]any{
+				"probe": pr.ProbeName, "type": pr.ProbeType, "passed": pr.Passed,
+			})
+		}
+	}
+
 	// Phase 4: Observe
 	result.Phase = domain.PhaseObserve
 	if cfg.TargetNamespace != nil && r.k8s != nil {
@@ -162,6 +206,16 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 			aiInsights["observation_analysis"] = analysis
 		} else {
 			log.Printf("AI observation analysis failed: %v", err)
+		}
+	}
+
+	// Execute EOT (End of Test) probes
+	for _, p := range probes {
+		if p.Mode() == domain.ProbeModeEOT {
+			pr := probe.SafeExecute(ctx, p)
+			probeResults = append(probeResults, map[string]any{
+				"probe": pr.ProbeName, "type": pr.ProbeType, "passed": pr.Passed,
+			})
 		}
 	}
 
@@ -189,6 +243,12 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 
 	if len(aiInsights) > 0 {
 		result.AIInsights = aiInsights
+	}
+	if len(probeResults) > 0 {
+		if result.Observations == nil {
+			result.Observations = make(map[string]any)
+		}
+		result.Observations["probe_results"] = probeResults
 	}
 
 	r.persistResult(ctx, experimentID, result)
@@ -221,6 +281,9 @@ func (r *Runner) executeChaos(ctx context.Context, cfg *domain.ExperimentConfig)
 				latencyMs = int(f)
 			}
 		}
+		if latencyMs < 1 || latencyMs > 60000 {
+			return nil, fmt.Errorf("latency_ms must be 1-60000, got %d", latencyMs)
+		}
 		return r.k8s.NetworkLatency(ctx, namespace, labelSelector, latencyMs, cfg)
 
 	case domain.ChaosTypeNetworkLoss:
@@ -233,6 +296,9 @@ func (r *Runner) executeChaos(ctx context.Context, cfg *domain.ExperimentConfig)
 				lossPercent = int(f)
 			}
 		}
+		if lossPercent < 1 || lossPercent > 100 {
+			return nil, fmt.Errorf("loss_percent must be 1-100, got %d", lossPercent)
+		}
 		return r.k8s.NetworkLoss(ctx, namespace, labelSelector, lossPercent, cfg)
 
 	case domain.ChaosTypeCPUStress:
@@ -244,6 +310,9 @@ func (r *Runner) executeChaos(ctx context.Context, cfg *domain.ExperimentConfig)
 			if f, ok := v.(float64); ok {
 				cores = int(f)
 			}
+		}
+		if cores < 1 || cores > 64 {
+			return nil, fmt.Errorf("cores must be 1-64, got %d", cores)
 		}
 		return r.k8s.CPUStress(ctx, namespace, labelSelector, cores, cfg.Safety.TimeoutSeconds, cfg)
 
@@ -326,7 +395,7 @@ func (r *Runner) persistResult(ctx context.Context, experimentID string, result 
 			errText = pgtype.Text{String: *result.Error, Valid: true}
 		}
 
-		r.queries.UpdateExperiment(ctx, db.UpdateExperimentParams{
+		if err := r.queries.UpdateExperiment(ctx, db.UpdateExperimentParams{
 			ID:              experimentID,
 			Status:          string(result.Status),
 			Phase:           string(result.Phase),
@@ -338,7 +407,9 @@ func (r *Runner) persistResult(ctx context.Context, experimentID string, result 
 			RollbackResult:  rbJSON,
 			Error:           errText,
 			AiInsights:      aiJSON,
-		})
+		}); err != nil {
+			log.Printf("Failed to update experiment %s: %v", experimentID, err)
+		}
 	}
 }
 
@@ -364,7 +435,7 @@ func (r *Runner) callAI(path string, body any) (map[string]any, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max
 	if err != nil {
 		return nil, fmt.Errorf("read AI response: %w", err)
 	}
@@ -379,6 +450,71 @@ func (r *Runner) callAI(path string, body any) (map[string]any, error) {
 	}
 
 	return result, nil
+}
+
+// buildProbes creates probe instances from experiment config
+func (r *Runner) buildProbes(cfg domain.ExperimentConfig) []probe.Probe {
+	var probes []probe.Probe
+	for _, pc := range cfg.Probes {
+		var p probe.Probe
+		switch pc.Type {
+		case domain.ProbeTypeHTTP:
+			url, _ := pc.Properties["url"].(string)
+			method, _ := pc.Properties["method"].(string)
+			status := 200
+			if v, ok := pc.Properties["expected_status"].(float64); ok {
+				status = int(v)
+			}
+			bodyPattern, _ := pc.Properties["body_pattern"].(string)
+			hp, err := probe.NewHTTPProbe(probe.HTTPProbeConfig{
+				Name: pc.Name, Mode: pc.Mode, URL: url, Method: method,
+				ExpectedStatus: status, BodyPattern: bodyPattern,
+			})
+			if err != nil {
+				log.Printf("Failed to create HTTP probe %s: %v", pc.Name, err)
+				continue
+			}
+			p = hp
+		case domain.ProbeTypeCmd:
+			command, _ := pc.Properties["command"].(string)
+			exitCode := 0
+			if v, ok := pc.Properties["expected_exit_code"].(float64); ok {
+				exitCode = int(v)
+			}
+			p = probe.NewCmdProbe(probe.CmdProbeConfig{
+				Name: pc.Name, Mode: pc.Mode, Command: command, ExpectedExitCode: exitCode,
+			})
+		case domain.ProbeTypeK8s:
+			if r.k8s == nil {
+				log.Printf("Skipping K8s probe %s: no K8s engine", pc.Name)
+				continue
+			}
+			ns, _ := pc.Properties["namespace"].(string)
+			kind, _ := pc.Properties["resource_kind"].(string)
+			name, _ := pc.Properties["resource_name"].(string)
+			p = probe.NewK8sProbe(probe.K8sProbeConfig{
+				Name: pc.Name, Mode: pc.Mode, Clientset: r.k8s.Clientset(),
+				Namespace: ns, ResourceKind: kind, ResourceName: name,
+			})
+		case domain.ProbeTypePrometheus:
+			endpoint, _ := pc.Properties["endpoint"].(string)
+			query, _ := pc.Properties["query"].(string)
+			comparator, _ := pc.Properties["comparator"].(string)
+			threshold := 0.0
+			if v, ok := pc.Properties["threshold"].(float64); ok {
+				threshold = v
+			}
+			p = probe.NewPromProbe(probe.PromProbeConfig{
+				Name: pc.Name, Mode: pc.Mode, Endpoint: endpoint,
+				Query: query, Comparator: comparator, Threshold: threshold,
+			})
+		default:
+			log.Printf("Unknown probe type: %s", pc.Type)
+			continue
+		}
+		probes = append(probes, p)
+	}
+	return probes
 }
 
 func extractStringSlice(params map[string]any, key string) []string {

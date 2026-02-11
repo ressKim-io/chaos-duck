@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -32,6 +33,10 @@ func NewAnalysisHandler(queries *db.Queries, aiServiceURL string) *AnalysisHandl
 
 // AnalyzeExperiment proxies to AI service for experiment analysis
 func (h *AnalysisHandler) AnalyzeExperiment(c *gin.Context) {
+	if h.queries == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"detail": "Database not available"})
+		return
+	}
 	experimentID := c.Param("experiment_id")
 
 	rec, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
@@ -55,20 +60,22 @@ func (h *AnalysisHandler) AnalyzeExperiment(c *gin.Context) {
 	}
 
 	// Persist analysis result if we got one
-	if severity, ok := resp["severity"].(string); ok {
+	if severity, ok := resp["severity"].(string); ok && h.queries != nil {
 		rootCause, _ := resp["root_cause"].(string)
 		confidence, _ := resp["confidence"].(float64)
 		resilienceScore, _ := resp["resilience_score"].(float64)
 		recsJSON, _ := json.Marshal(resp["recommendations"])
 
-		h.queries.CreateAnalysisResult(c.Request.Context(), db.CreateAnalysisResultParams{
+		if _, err := h.queries.CreateAnalysisResult(c.Request.Context(), db.CreateAnalysisResultParams{
 			ExperimentID:    experimentID,
 			Severity:        severity,
 			RootCause:       rootCause,
 			Confidence:      confidence,
 			Recommendations: recsJSON,
 			ResilienceScore: pgtype.Float8{Float64: resilienceScore, Valid: true},
-		})
+		}); err != nil {
+			log.Printf("Failed to persist analysis result: %v", err)
+		}
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -162,6 +169,10 @@ func (h *AnalysisHandler) NLExperiment(c *gin.Context) {
 
 // ResilienceTrend returns resilience score trend from DB
 func (h *AnalysisHandler) ResilienceTrend(c *gin.Context) {
+	if h.queries == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"detail": "Database not available"})
+		return
+	}
 	namespace := c.Query("namespace")
 	daysStr := c.DefaultQuery("days", "30")
 	days, err := strconv.Atoi(daysStr)
@@ -211,6 +222,10 @@ func (h *AnalysisHandler) ResilienceTrend(c *gin.Context) {
 
 // ResilienceTrendSummary returns AI-generated summary of the trend
 func (h *AnalysisHandler) ResilienceTrendSummary(c *gin.Context) {
+	if h.queries == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"detail": "Database not available"})
+		return
+	}
 	daysStr := c.DefaultQuery("days", "30")
 	days, err := strconv.Atoi(daysStr)
 	if err != nil || days < 1 || days > 365 {
@@ -270,7 +285,7 @@ func (h *AnalysisHandler) proxyToAI(path string, body any) (map[string]any, erro
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -54,26 +55,40 @@ func (h *ChaosHandler) CreateExperiment(c *gin.Context) {
 		return
 	}
 
-	// Apply defaults for zero-value safety config
+	// Fill in zero-value safety fields with defaults
+	defaults := domain.DefaultSafetyConfig()
 	if cfg.Safety.TimeoutSeconds == 0 {
-		cfg.Safety = domain.DefaultSafetyConfig()
+		cfg.Safety.TimeoutSeconds = defaults.TimeoutSeconds
+	}
+	if cfg.Safety.MaxBlastRadius == 0 {
+		cfg.Safety.MaxBlastRadius = defaults.MaxBlastRadius
+	}
+	if cfg.Safety.HealthCheckInterval == 0 {
+		cfg.Safety.HealthCheckInterval = defaults.HealthCheckInterval
+	}
+	if cfg.Safety.HealthCheckFailureThreshold == 0 {
+		cfg.Safety.HealthCheckFailureThreshold = defaults.HealthCheckFailureThreshold
 	}
 
 	experimentID := uuid.New().String()[:8]
 	now := time.Now().UTC()
 
 	// Persist initial record
-	configJSON, _ := json.Marshal(cfg)
-	h.queries.CreateExperiment(c.Request.Context(), db.CreateExperimentParams{
-		ID:     experimentID,
-		Config: configJSON,
-		Status: string(domain.StatusRunning),
-		Phase:  string(domain.PhaseSteadyState),
-		StartedAt: pgtype.Timestamptz{
-			Time:  now,
-			Valid: true,
-		},
-	})
+	if h.queries != nil {
+		configJSON, _ := json.Marshal(cfg)
+		if _, err := h.queries.CreateExperiment(c.Request.Context(), db.CreateExperimentParams{
+			ID:     experimentID,
+			Config: configJSON,
+			Status: string(domain.StatusRunning),
+			Phase:  string(domain.PhaseSteadyState),
+			StartedAt: pgtype.Timestamptz{
+				Time:  now,
+				Valid: true,
+			},
+		}); err != nil {
+			log.Printf("Failed to persist experiment %s: %v", experimentID, err)
+		}
+	}
 
 	h.metrics.RecordExperimentStart()
 
@@ -92,6 +107,10 @@ func (h *ChaosHandler) CreateExperiment(c *gin.Context) {
 
 // ListExperiments returns all experiments
 func (h *ChaosHandler) ListExperiments(c *gin.Context) {
+	if h.queries == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"detail": "Database not available"})
+		return
+	}
 	records, err := h.queries.ListExperiments(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
@@ -107,6 +126,10 @@ func (h *ChaosHandler) ListExperiments(c *gin.Context) {
 
 // GetExperiment returns a specific experiment
 func (h *ChaosHandler) GetExperiment(c *gin.Context) {
+	if h.queries == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"detail": "Database not available"})
+		return
+	}
 	experimentID := c.Param("experiment_id")
 
 	rec, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
@@ -122,17 +145,23 @@ func (h *ChaosHandler) GetExperiment(c *gin.Context) {
 func (h *ChaosHandler) RollbackExperiment(c *gin.Context) {
 	experimentID := c.Param("experiment_id")
 
-	_, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"detail": "Experiment not found"})
-		return
+	if h.queries != nil {
+		_, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"detail": "Experiment not found"})
+			return
+		}
 	}
 
 	results := h.rollbackMgr.Rollback(experimentID)
-	h.queries.UpdateExperimentStatus(c.Request.Context(), db.UpdateExperimentStatusParams{
-		ID:     experimentID,
-		Status: string(domain.StatusRolledBack),
-	})
+	if h.queries != nil {
+		if err := h.queries.UpdateExperimentStatus(c.Request.Context(), db.UpdateExperimentStatusParams{
+			ID:     experimentID,
+			Status: string(domain.StatusRolledBack),
+		}); err != nil {
+			log.Printf("Failed to update experiment status: %v", err)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"experiment_id":    experimentID,
@@ -149,9 +178,12 @@ func (h *ChaosHandler) DryRun(c *gin.Context) {
 	}
 
 	cfg.Safety.DryRun = true
+	defaults := domain.DefaultSafetyConfig()
 	if cfg.Safety.TimeoutSeconds == 0 {
-		cfg.Safety = domain.DefaultSafetyConfig()
-		cfg.Safety.DryRun = true
+		cfg.Safety.TimeoutSeconds = defaults.TimeoutSeconds
+	}
+	if cfg.Safety.MaxBlastRadius == 0 {
+		cfg.Safety.MaxBlastRadius = defaults.MaxBlastRadius
 	}
 
 	experimentID := "dry-" + uuid.New().String()[:8]
