@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_session
@@ -112,3 +115,80 @@ async def nl_experiment(request: dict):
     topology = request.get("topology")
     config = await ai_engine.parse_natural_language(text, topology)
     return config
+
+
+@router.get("/resilience-trend")
+async def resilience_trend(
+    namespace: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=365),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get resilience score trend from analysis history."""
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    query = select(AnalysisResultRecord).where(AnalysisResultRecord.created_at >= since)
+
+    if namespace:
+        # Join with experiments to filter by namespace in config
+        query = (
+            select(AnalysisResultRecord)
+            .join(ExperimentRecord, AnalysisResultRecord.experiment_id == ExperimentRecord.id)
+            .where(
+                AnalysisResultRecord.created_at >= since,
+                ExperimentRecord.config["target_namespace"].as_string() == namespace,
+            )
+        )
+
+    query = query.order_by(AnalysisResultRecord.created_at.asc())
+    result = await session.execute(query)
+    records = result.scalars().all()
+
+    return {
+        "trend": [
+            {
+                "experiment_id": r.experiment_id,
+                "resilience_score": r.resilience_score,
+                "severity": r.severity,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in records
+        ],
+        "count": len(records),
+        "period_days": days,
+        "namespace": namespace,
+    }
+
+
+@router.get("/resilience-trend/summary")
+async def resilience_trend_summary(
+    namespace: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=365),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get AI-generated summary of resilience score trend."""
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    query = (
+        select(AnalysisResultRecord)
+        .where(AnalysisResultRecord.created_at >= since)
+        .order_by(AnalysisResultRecord.created_at.asc())
+    )
+    result = await session.execute(query)
+    records = result.scalars().all()
+
+    experiments_data = [
+        {
+            "experiment_id": r.experiment_id,
+            "resilience_score": r.resilience_score,
+            "severity": r.severity,
+            "root_cause": r.root_cause,
+        }
+        for r in records
+    ]
+
+    summary = await ai_engine.calculate_resilience_score(experiments_data)
+    return {
+        "summary": summary,
+        "data_points": len(records),
+        "period_days": days,
+    }

@@ -316,3 +316,28 @@ class TestAnalysisRouter:
             json={"text": ""},
         )
         assert resp.status_code == 400
+
+    async def test_resilience_trend_empty(self, client):
+        resp = await client.get("/api/analysis/resilience-trend")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["trend"] == []
+        assert data["count"] == 0
+
+    async def test_resilience_trend_with_namespace(self, client):
+        resp = await client.get("/api/analysis/resilience-trend?namespace=default&days=7")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["namespace"] == "default"
+        assert data["period_days"] == 7
+
+    async def test_resilience_trend_summary(self, client):
+        with patch("routers.analysis.ai_engine") as mock_engine:
+            mock_engine.calculate_resilience_score = AsyncMock(
+                return_value={"overall": 85, "details": "Good resilience"}
+            )
+            resp = await client.get("/api/analysis/resilience-trend/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["summary"]["overall"] == 85
+        assert data["data_points"] == 0
