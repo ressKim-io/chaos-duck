@@ -54,7 +54,7 @@ func TestSnapshotManagerCaptureAWS(t *testing.T) {
 func TestSnapshotManagerDelete(t *testing.T) {
 	sm := NewSnapshotManager(nil)
 
-	sm.CaptureK8sSnapshot(context.Background(), "exp-1", "default", map[string]any{})
+	_, _ = sm.CaptureK8sSnapshot(context.Background(), "exp-1", "default", map[string]any{})
 
 	_, ok := sm.GetSnapshot("exp-1")
 	assert.True(t, ok)
@@ -78,8 +78,8 @@ func TestSnapshotManagerGetNonexistent(t *testing.T) {
 func TestSnapshotManagerListSnapshots(t *testing.T) {
 	sm := NewSnapshotManager(nil)
 
-	sm.CaptureK8sSnapshot(context.Background(), "exp-1", "default", map[string]any{})
-	sm.CaptureAWSSnapshot(context.Background(), "exp-2", "ec2", "i-123", map[string]any{})
+	_, _ = sm.CaptureK8sSnapshot(context.Background(), "exp-1", "default", map[string]any{})
+	_, _ = sm.CaptureAWSSnapshot(context.Background(), "exp-2", "ec2", "i-123", map[string]any{})
 
 	list := sm.ListSnapshots()
 	assert.Len(t, list, 2)
@@ -104,7 +104,7 @@ func TestRestoreFromSnapshotK8sMissingPods(t *testing.T) {
 			map[string]any{"name": "web-3", "namespace": "default"},
 		},
 	}
-	sm.CaptureK8sSnapshot(context.Background(), "exp-1", "default", state)
+	_, _ = sm.CaptureK8sSnapshot(context.Background(), "exp-1", "default", state)
 
 	// Current state: only web-1 remains
 	currentState := map[string]any{
@@ -138,7 +138,7 @@ func TestRestoreFromSnapshotK8sNoDrift(t *testing.T) {
 			map[string]any{"name": "web-1"},
 		},
 	}
-	sm.CaptureK8sSnapshot(context.Background(), "exp-1", "default", state)
+	_, _ = sm.CaptureK8sSnapshot(context.Background(), "exp-1", "default", state)
 
 	currentState := map[string]any{
 		"pods": []any{
@@ -160,7 +160,7 @@ func TestRestoreFromSnapshotAWSDrift(t *testing.T) {
 		"instance_id": "i-12345",
 		"state":       "running",
 	}
-	sm.CaptureAWSSnapshot(context.Background(), "exp-2", "ec2", "i-12345", state)
+	_, _ = sm.CaptureAWSSnapshot(context.Background(), "exp-2", "ec2", "i-12345", state)
 
 	// EC2 instance was stopped
 	currentState := map[string]any{
@@ -185,7 +185,7 @@ func TestRestoreFromSnapshotAWSNoDrift(t *testing.T) {
 		"instance_id": "i-12345",
 		"state":       "running",
 	}
-	sm.CaptureAWSSnapshot(context.Background(), "exp-2", "ec2", "i-12345", state)
+	_, _ = sm.CaptureAWSSnapshot(context.Background(), "exp-2", "ec2", "i-12345", state)
 
 	currentState := map[string]any{
 		"instance_id": "i-12345",

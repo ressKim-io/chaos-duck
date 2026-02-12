@@ -15,7 +15,7 @@ import (
 func TestHTTPProbeSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"status":"healthy"}`))
+		_, _ = w.Write([]byte(`{"status":"healthy"}`))
 	}))
 	defer srv.Close()
 
@@ -62,7 +62,7 @@ func TestHTTPProbeWrongStatus(t *testing.T) {
 func TestHTTPProbeBodyPattern(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"status":"healthy","version":"1.2.3"}`))
+		_, _ = w.Write([]byte(`{"status":"healthy","version":"1.2.3"}`))
 	}))
 	defer srv.Close()
 

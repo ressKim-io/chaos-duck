@@ -15,7 +15,7 @@ func TestPromProbeSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Contains(t, r.URL.Path, "/api/v1/query")
 		w.WriteHeader(200)
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"data": {
 				"result": [
 					{"value": [1234567890, "0.95"]}
@@ -51,7 +51,7 @@ func TestPromProbeSuccess(t *testing.T) {
 func TestPromProbeFailsThreshold(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"data": {
 				"result": [
 					{"value": [1234567890, "0.3"]}
@@ -78,7 +78,7 @@ func TestPromProbeFailsThreshold(t *testing.T) {
 func TestPromProbeNoResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"data": {"result": []}}`))
+		_, _ = w.Write([]byte(`{"data": {"result": []}}`))
 	}))
 	defer srv.Close()
 
@@ -116,7 +116,7 @@ func TestPromProbeServerError(t *testing.T) {
 func TestPromProbeComparators(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"data": {"result": [{"value": [0, "5.0"]}]}}`))
+		_, _ = w.Write([]byte(`{"data": {"result": [{"value": [0, "5.0"]}]}}`))
 	}))
 	defer srv.Close()
 

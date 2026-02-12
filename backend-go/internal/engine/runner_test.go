@@ -71,14 +71,14 @@ func TestCallAISuccess(t *testing.T) {
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		assert.NotNil(t, body["steady_state"])
 
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 			"review": "System looks healthy",
 			"score":  0.95,
-		})
+		}))
 	}))
 	defer srv.Close()
 
@@ -99,7 +99,7 @@ func TestCallAISuccess(t *testing.T) {
 func TestCallAIServiceError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
-		w.Write([]byte(`{"detail":"internal error"}`))
+		_, _ = w.Write([]byte(`{"detail":"internal error"}`))
 	}))
 	defer srv.Close()
 

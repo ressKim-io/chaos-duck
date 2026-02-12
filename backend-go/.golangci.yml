@@ -1,0 +1,15 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+  exclusions:
+    rules:
+      # fake.NewSimpleClientset is deprecated but NewClientset requires applyconfig generation
+      - linters:
+          - staticcheck
+        text: "SA1019.*NewSimpleClientset"
