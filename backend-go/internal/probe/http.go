@@ -90,7 +90,7 @@ func (p *HTTPProbe) Execute(ctx context.Context) (*ProbeResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	statusOK := resp.StatusCode == p.expectedStatus
 	bodyOK := true

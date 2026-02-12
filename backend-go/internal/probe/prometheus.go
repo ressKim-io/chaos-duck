@@ -72,7 +72,7 @@ func (p *PromProbe) Execute(ctx context.Context) (*ProbeResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("prometheus request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("prometheus returned %d", resp.StatusCode)
