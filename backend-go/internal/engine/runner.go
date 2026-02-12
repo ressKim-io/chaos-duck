@@ -97,7 +97,9 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 			log.Printf("Steady state capture failed: %v", err)
 		} else {
 			result.SteadyState = steadyState
-			r.snapshotMgr.CaptureK8sSnapshot(ctx, experimentID, *cfg.TargetNamespace, steadyState)
+			if _, err := r.snapshotMgr.CaptureK8sSnapshot(ctx, experimentID, *cfg.TargetNamespace, steadyState); err != nil {
+				log.Printf("Failed to capture snapshot for %s: %v", experimentID, err)
+			}
 		}
 	}
 
@@ -219,8 +221,16 @@ func (r *Runner) Run(ctx context.Context, experimentID string, cfg domain.Experi
 		}
 	}
 
-	// Phase 5: Rollback
+	// Phase 5: Rollback - always execute rollback to clean up injected faults
 	result.Phase = domain.PhaseRollback
+	rollbackResults := r.rollbackMgr.Rollback(experimentID)
+	if len(rollbackResults) > 0 {
+		rbMap := make(map[string]any)
+		for i, rr := range rollbackResults {
+			rbMap[fmt.Sprintf("rollback_%d", i)] = rr
+		}
+		result.RollbackResult = rbMap
+	}
 	result.Status = domain.StatusCompleted
 	completedAt := time.Now().UTC()
 	result.CompletedAt = &completedAt
@@ -361,12 +371,20 @@ func (r *Runner) persistResult(ctx context.Context, experimentID string, result 
 		return
 	}
 
-	configJSON, _ := json.Marshal(result.Config)
-	steadyJSON, _ := json.Marshal(result.SteadyState)
-	injJSON, _ := json.Marshal(result.InjectionResult)
-	obsJSON, _ := json.Marshal(result.Observations)
-	rbJSON, _ := json.Marshal(result.RollbackResult)
-	aiJSON, _ := json.Marshal(result.AIInsights)
+	marshalOrEmpty := func(v any) []byte {
+		b, err := json.Marshal(v)
+		if err != nil {
+			log.Printf("Failed to marshal field for experiment %s: %v", experimentID, err)
+			return []byte("{}")
+		}
+		return b
+	}
+	configJSON := marshalOrEmpty(result.Config)
+	steadyJSON := marshalOrEmpty(result.SteadyState)
+	injJSON := marshalOrEmpty(result.InjectionResult)
+	obsJSON := marshalOrEmpty(result.Observations)
+	rbJSON := marshalOrEmpty(result.RollbackResult)
+	aiJSON := marshalOrEmpty(result.AIInsights)
 
 	var completedAt pgtype.Timestamptz
 	if result.CompletedAt != nil {
@@ -374,15 +392,17 @@ func (r *Runner) persistResult(ctx context.Context, experimentID string, result 
 	}
 
 	// Create or update the experiment record
+	var startedAt pgtype.Timestamptz
+	if result.StartedAt != nil {
+		startedAt = pgtype.Timestamptz{Time: *result.StartedAt, Valid: true}
+	}
+
 	_, err := r.queries.CreateExperiment(ctx, db.CreateExperimentParams{
-		ID:     experimentID,
-		Config: configJSON,
-		Status: string(result.Status),
-		Phase:  string(result.Phase),
-		StartedAt: pgtype.Timestamptz{
-			Time:  *result.StartedAt,
-			Valid: result.StartedAt != nil,
-		},
+		ID:        experimentID,
+		Config:    configJSON,
+		Status:    string(result.Status),
+		Phase:     string(result.Phase),
+		StartedAt: startedAt,
 	})
 	if err != nil {
 		// Already exists, update instead
@@ -433,7 +453,7 @@ func (r *Runner) callAI(path string, body any) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("AI request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max
 	if err != nil {

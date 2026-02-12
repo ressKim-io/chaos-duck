@@ -95,28 +95,22 @@ func (e *K8sEngine) PodDelete(ctx context.Context, namespace, labelSelector stri
 	}
 
 	// Delete pods and save specs for rollback
-	savedPods := make([]corev1.Pod, 0, len(pods.Items))
+	deletedPods := make([]corev1.Pod, 0, len(pods.Items))
 	for _, pod := range pods.Items {
-		savedPods = append(savedPods, pod)
 		if err := e.clientset.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{}); err != nil {
-			return nil, fmt.Errorf("delete pod %s: %w", pod.Name, err)
+			// Partial failure: return rollback for already-deleted pods
+			log.Printf("Failed to delete pod %s (deleted %d/%d): %v", pod.Name, len(deletedPods), len(pods.Items), err)
+			rollback := buildPodRollback(e.clientset, namespace, deletedPods)
+			return &domain.ChaosResult{
+				Result:     map[string]any{"action": "pod_delete", "pods": podNameListFromPods(deletedPods), "partial_failure": pod.Name},
+				RollbackFn: rollback,
+			}, fmt.Errorf("delete pod %s: %w", pod.Name, err)
 		}
+		deletedPods = append(deletedPods, pod)
 	}
-	log.Printf("Deleted %d pods in %s", len(podNames), namespace)
+	log.Printf("Deleted %d pods in %s", len(deletedPods), namespace)
 
-	rollback := func() (map[string]any, error) {
-		rbCtx := context.Background()
-		for _, pod := range savedPods {
-			pod.ResourceVersion = ""
-			pod.Status = corev1.PodStatus{}
-			pod.UID = ""
-			if _, err := e.clientset.CoreV1().Pods(namespace).Create(rbCtx, &pod, metav1.CreateOptions{}); err != nil {
-				log.Printf("Rollback: failed to recreate pod %s: %v", pod.Name, err)
-			}
-		}
-		log.Printf("Rollback: recreated %d pods in %s", len(savedPods), namespace)
-		return map[string]any{"recreated": len(savedPods)}, nil
-	}
+	rollback := buildPodRollback(e.clientset, namespace, deletedPods)
 
 	return &domain.ChaosResult{
 		Result:     map[string]any{"action": "pod_delete", "pods": podNames},
@@ -320,6 +314,20 @@ func (e *K8sEngine) GetTopology(ctx context.Context, namespace string) (*domain.
 		})
 	}
 
+	// ReplicaSets - build RS-to-Deployment ownership map
+	replicaSets, err := e.clientset.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list replicasets: %w", err)
+	}
+	rsToDeployment := make(map[string]string) // RS name -> Deployment name
+	for _, rs := range replicaSets.Items {
+		for _, owner := range rs.OwnerReferences {
+			if owner.Kind == "Deployment" {
+				rsToDeployment[rs.Name] = owner.Name
+			}
+		}
+	}
+
 	// Pods
 	pods, err := e.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -343,17 +351,15 @@ func (e *K8sEngine) GetTopology(ctx context.Context, namespace string) (*domain.
 			Health:       health,
 		})
 
-		// Link pod to owner deployment
+		// Link pod to owner deployment via ReplicaSet ownership chain
 		for _, owner := range pod.OwnerReferences {
 			if owner.Kind == "ReplicaSet" {
-				for _, dep := range deployments.Items {
-					if strings.HasPrefix(pod.Name, dep.Name) {
-						edges = append(edges, domain.TopologyEdge{
-							Source:   "deploy/" + dep.Name,
-							Target:   podID,
-							Relation: "manages",
-						})
-					}
+				if depName, ok := rsToDeployment[owner.Name]; ok {
+					edges = append(edges, domain.TopologyEdge{
+						Source:   "deploy/" + depName,
+						Target:   podID,
+						Relation: "manages",
+					})
 				}
 			}
 		}
@@ -439,4 +445,28 @@ func podNameList(pods *corev1.PodList) []string {
 		names = append(names, p.Name)
 	}
 	return names
+}
+
+func podNameListFromPods(pods []corev1.Pod) []string {
+	names := make([]string, 0, len(pods))
+	for _, p := range pods {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+func buildPodRollback(clientset kubernetes.Interface, namespace string, pods []corev1.Pod) domain.RollbackFunc {
+	return func() (map[string]any, error) {
+		rbCtx := context.Background()
+		for _, pod := range pods {
+			pod.ResourceVersion = ""
+			pod.Status = corev1.PodStatus{}
+			pod.UID = ""
+			if _, err := clientset.CoreV1().Pods(namespace).Create(rbCtx, &pod, metav1.CreateOptions{}); err != nil {
+				log.Printf("Rollback: failed to recreate pod %s: %v", pod.Name, err)
+			}
+		}
+		log.Printf("Rollback: recreated %d pods in %s", len(pods), namespace)
+		return map[string]any{"recreated": len(pods)}, nil
+	}
 }

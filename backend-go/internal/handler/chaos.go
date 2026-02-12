@@ -76,7 +76,11 @@ func (h *ChaosHandler) CreateExperiment(c *gin.Context) {
 
 	// Persist initial record
 	if h.queries != nil {
-		configJSON, _ := json.Marshal(cfg)
+		configJSON, err := json.Marshal(cfg)
+		if err != nil {
+			log.Printf("Failed to marshal config for experiment %s: %v", experimentID, err)
+			configJSON = []byte("{}")
+		}
 		if _, err := h.queries.CreateExperiment(c.Request.Context(), db.CreateExperimentParams{
 			ID:     experimentID,
 			Config: configJSON,
@@ -211,7 +215,9 @@ func recordToResult(rec db.Experiment) domain.ExperimentResult {
 
 	// Parse config
 	if len(rec.Config) > 0 {
-		json.Unmarshal(rec.Config, &result.Config)
+		if err := json.Unmarshal(rec.Config, &result.Config); err != nil {
+			log.Printf("Failed to unmarshal config for experiment %s: %v", rec.ID, err)
+		}
 	}
 
 	if rec.StartedAt.Valid {
@@ -224,7 +230,9 @@ func recordToResult(rec db.Experiment) domain.ExperimentResult {
 	}
 	if len(rec.SteadyState) > 0 {
 		var ss map[string]any
-		json.Unmarshal(rec.SteadyState, &ss)
+		if err := json.Unmarshal(rec.SteadyState, &ss); err != nil {
+			log.Printf("Failed to unmarshal steady_state for experiment %s: %v", rec.ID, err)
+		}
 		result.SteadyState = ss
 	}
 	if rec.Hypothesis.Valid {
@@ -232,17 +240,23 @@ func recordToResult(rec db.Experiment) domain.ExperimentResult {
 	}
 	if len(rec.InjectionResult) > 0 {
 		var ir map[string]any
-		json.Unmarshal(rec.InjectionResult, &ir)
+		if err := json.Unmarshal(rec.InjectionResult, &ir); err != nil {
+			log.Printf("Failed to unmarshal injection_result for experiment %s: %v", rec.ID, err)
+		}
 		result.InjectionResult = ir
 	}
 	if len(rec.Observations) > 0 {
 		var obs map[string]any
-		json.Unmarshal(rec.Observations, &obs)
+		if err := json.Unmarshal(rec.Observations, &obs); err != nil {
+			log.Printf("Failed to unmarshal observations for experiment %s: %v", rec.ID, err)
+		}
 		result.Observations = obs
 	}
 	if len(rec.RollbackResult) > 0 {
 		var rr map[string]any
-		json.Unmarshal(rec.RollbackResult, &rr)
+		if err := json.Unmarshal(rec.RollbackResult, &rr); err != nil {
+			log.Printf("Failed to unmarshal rollback_result for experiment %s: %v", rec.ID, err)
+		}
 		result.RollbackResult = rr
 	}
 	if rec.Error.Valid {
@@ -250,7 +264,9 @@ func recordToResult(rec db.Experiment) domain.ExperimentResult {
 	}
 	if len(rec.AiInsights) > 0 {
 		var ai map[string]any
-		json.Unmarshal(rec.AiInsights, &ai)
+		if err := json.Unmarshal(rec.AiInsights, &ai); err != nil {
+			log.Printf("Failed to unmarshal ai_insights for experiment %s: %v", rec.ID, err)
+		}
 		result.AIInsights = ai
 	}
 
@@ -272,7 +288,7 @@ func sendSSE(c *gin.Context, event string, data any) {
 		log.Printf("SSE marshal error: %v", err)
 		return
 	}
-	fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, j)
+	_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, j)
 	if f, ok := c.Writer.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -314,8 +330,13 @@ func (h *ChaosHandler) StreamExperiment(c *gin.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	maxTimeout := time.After(5 * time.Minute)
+
 	for {
 		select {
+		case <-maxTimeout:
+			sendSSE(c, "timeout", gin.H{"message": "stream max timeout reached"})
+			return
 		case <-c.Request.Context().Done():
 			return
 		case <-ticker.C:

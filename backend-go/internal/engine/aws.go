@@ -210,7 +210,9 @@ func (e *AwsEngine) GetTopology(ctx context.Context) (*domain.InfraTopology, err
 			}
 
 			health := domain.HealthUnknown
+			stateName := ""
 			if inst.State != nil {
+				stateName = string(inst.State.Name)
 				switch inst.State.Name {
 				case ec2types.InstanceStateNameRunning:
 					health = domain.HealthHealthy
@@ -226,7 +228,7 @@ func (e *AwsEngine) GetTopology(ctx context.Context) (*domain.InfraTopology, err
 				Labels:       tags,
 				Health:       health,
 				Metadata: map[string]any{
-					"state": string(inst.State.Name),
+					"state": stateName,
 					"type":  string(inst.InstanceType),
 				},
 			})
