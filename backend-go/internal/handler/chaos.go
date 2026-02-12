@@ -267,9 +267,15 @@ var terminalStatuses = map[domain.ExperimentStatus]bool{
 
 // sendSSE writes a single SSE event to the response writer
 func sendSSE(c *gin.Context, event string, data any) {
-	j, _ := json.Marshal(data)
+	j, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("SSE marshal error: %v", err)
+		return
+	}
 	fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, j)
-	c.Writer.(http.Flusher).Flush()
+	if f, ok := c.Writer.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // StreamExperiment streams experiment updates via Server-Sent Events
@@ -280,8 +286,8 @@ func (h *ChaosHandler) StreamExperiment(c *gin.Context) {
 	}
 	experimentID := c.Param("experiment_id")
 
-	// Verify experiment exists
-	_, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
+	// Fetch initial state (also verifies experiment exists)
+	rec, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"detail": "Experiment not found"})
 		return
@@ -294,25 +300,19 @@ func (h *ChaosHandler) StreamExperiment(c *gin.Context) {
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
 
-	var lastStatus string
-	var lastPhase string
+	// Send initial state immediately
+	result := recordToResult(rec)
+	lastStatus := string(result.Status)
+	lastPhase := string(result.Phase)
+	sendSSE(c, "experiment", result)
+
+	if terminalStatuses[result.Status] {
+		sendSSE(c, "done", gin.H{"status": result.Status})
+		return
+	}
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-
-	// Send initial state immediately
-	rec, err := h.queries.GetExperiment(c.Request.Context(), experimentID)
-	if err == nil {
-		result := recordToResult(rec)
-		lastStatus = string(result.Status)
-		lastPhase = string(result.Phase)
-		sendSSE(c, "experiment", result)
-
-		if terminalStatuses[result.Status] {
-			sendSSE(c, "done", gin.H{"status": result.Status})
-			return
-		}
-	}
 
 	for {
 		select {
