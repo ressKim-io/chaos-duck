@@ -27,6 +27,9 @@ services:
       - DATABASE_URL=postgres://chaosduck:${POSTGRES_PASSWORD:-chaosduck}@postgres:5432/chaosduck?sslmode=disable
       - AI_SERVICE_URL=http://ai-service:8001
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - CORS_ALLOW_ORIGIN=http://localhost:5173
       - SERVER_PORT=8080
     volumes:
@@ -126,7 +129,23 @@ services:
       - prometheus
     restart: unless-stopped
 
+  # LocalStack for AWS testing without real credentials
+  localstack:
+    image: localstack/localstack:latest
+    profiles: ["testing"]
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=ec2,rds
+      - DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - localstackdata:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
 volumes:
   pgdata:
   promdata:
   grafanadata:
+  localstackdata:
